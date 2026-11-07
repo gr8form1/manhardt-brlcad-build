@@ -1,0 +1,282 @@
+{
+  "brlcad_commit": "bc130e1e7a9f179fe95fb42cde1a7d3becb512df",
+  "brlcad_version_files": "7.47.0 (development commit, not asserted release 7.46.0)",
+  "bext_commit": "42d8d7ca57f9d2f61192b41f0b41a731f1ba6c47",
+  "bext_gitlinks": [
+    {
+      "path": "appleseed/appleseed",
+      "commit": "05e66fd424c1311c52362247cff92b945ecf2021"
+    },
+    {
+      "path": "assetimport/assimp",
+      "commit": "cfc14a26d2103df97dba445ef203a01be82395bf"
+    },
+    {
+      "path": "astyle/astyle",
+      "commit": "848edc8206685bb2fd84a863cc3447837cf8cd7e"
+    },
+    {
+      "path": "boost/boost",
+      "commit": "2d59a4b188b6f4e9f0e7bb1eb535a0dc6900d401"
+    },
+    {
+      "path": "bullet/bullet3",
+      "commit": "63c4d67e337017f9d8b298c900e9aabdb69296e7"
+    },
+    {
+      "path": "clipper2/Clipper2",
+      "commit": "ef88ee97c0e759792e43a2b2d8072def6c9244e8"
+    },
+    {
+      "path": "deflate/libdeflate",
+      "commit": "275aa5141db6eda3587214e0f1d3a134768f557d"
+    },
+    {
+      "path": "eigen/eigen",
+      "commit": "bc3b39870ecb690a623a3f49149a358b95c5781d"
+    },
+    {
+      "path": "embree/embree",
+      "commit": "f590db83ef6559387df7f6d8725c34fb7acf851d"
+    },
+    {
+      "path": "expat/libexpat",
+      "commit": "fa75b96546c069d17b8f80d91e0f4ef0cde3790d"
+    },
+    {
+      "path": "flexbison/bison",
+      "commit": "17479d234a425aba58bf657439dbc716e01ca2d1"
+    },
+    {
+      "path": "flexbison/flex",
+      "commit": "ab49343b08c933e32de8de78132649f9560a3727"
+    },
+    {
+      "path": "flexbison/winflexbison",
+      "commit": "1176da2adaf972b2216b1ac8dd611e128fe80bc5"
+    },
+    {
+      "path": "fmt/fmt",
+      "commit": "e69e5f977d458f2650bb346dadf2ad30c5320281"
+    },
+    {
+      "path": "gdal/gdal",
+      "commit": "c8b4c45fca87d3e6fbf80e7a7898b8a661ad0edc"
+    },
+    {
+      "path": "gte/GeometricTools",
+      "commit": "e095b84018766274f1546a7baa12c257fd18f7d8"
+    },
+    {
+      "path": "icu/icu",
+      "commit": "f60c70ad335972045c566bf3165cdad3b8485c63"
+    },
+    {
+      "path": "ispc/ispc",
+      "commit": "3fc6d50cf24dc8b4a0cdb346553445ff28962051"
+    },
+    {
+      "path": "itk/itk",
+      "commit": "e697407849b01d3498b56fc46e5a423690190954"
+    },
+    {
+      "path": "iwidgets/iwidgets",
+      "commit": "ce8f624329a32c042c7da110166d03a6f5ad03c3"
+    },
+    {
+      "path": "jpeg/libjpeg-turbo",
+      "commit": "c85e6b905bf237038faa936dab160ebfc5da0344"
+    },
+    {
+      "path": "lemon/lemon",
+      "commit": "b0e459f6feb0ee5ed4167192bdbbb0270eaf0ecd"
+    },
+    {
+      "path": "lief/LIEF",
+      "commit": "d05b3499b6934137e917c009a4df0a9dc8cb11c5"
+    },
+    {
+      "path": "llvm/llvm-project",
+      "commit": "1daf978f2715ae657b852861d13760e9a5936f4c"
+    },
+    {
+      "path": "lmdb/lmdb",
+      "commit": "6f0a32496a5aadee15a5e5103c479bd3355ae273"
+    },
+    {
+      "path": "lz4/lz4",
+      "commit": "5ff839680134437dbf4678f3d0c7b371d84f4964"
+    },
+    {
+      "path": "manifold/manifold",
+      "commit": "0edd9d54876f3135e431575214dd6d8a72866fee"
+    },
+    {
+      "path": "minizip-ng/minizip-ng",
+      "commit": "fe5fedc365f7824ada0cf9a84fb79b30d5fc97a8"
+    },
+    {
+      "path": "mmesh/mmesh",
+      "commit": "ffdca572a318a914022539fd20eaee661312962d"
+    },
+    {
+      "path": "ncurses/ncurses",
+      "commit": "3b9fba8e3b25fd37df80531a1bd2a39ede18d6e0"
+    },
+    {
+      "path": "netpbm/netpbm",
+      "commit": "3da4bff319e8d8a1cd6844d9f00688cf2153f8c5"
+    },
+    {
+      "path": "oidn/oidn",
+      "commit": "49a0a43bdab45fbb6bec7b084d743387634da9c3"
+    },
+    {
+      "path": "onetbb/oneTBB",
+      "commit": "3046c8b0c29df995980003ea24f4d78c80ec0c8d"
+    },
+    {
+      "path": "opencolorio/OpenColorIO",
+      "commit": "fa521922c96644c375e82ef76a9712229761999c"
+    },
+    {
+      "path": "opencv/opencv",
+      "commit": "40738fb16ceddb5fb3fea747585f7ce6abb0605b"
+    },
+    {
+      "path": "openexr/openexr",
+      "commit": "a1a00ffeecf627bbbc010d40700720bee48b2af7"
+    },
+    {
+      "path": "openimageio/oiio",
+      "commit": "cfe3a2bfaffccb79ec57912b9ab8ea1cca3f4058"
+    },
+    {
+      "path": "opennurbs/opennurbs",
+      "commit": "23fc677ba06e49212296ca75fab7fb6c2851b4ce"
+    },
+    {
+      "path": "openvdb/openvdb",
+      "commit": "c81d904dede13fb698f9e2e40a5189781ca92a35"
+    },
+    {
+      "path": "osl/OpenShadingLanguage",
+      "commit": "1cb17d30922e68da5885ea4a105d6a282bd7dd16"
+    },
+    {
+      "path": "osmesa/osmesa",
+      "commit": "bfa90de454a7bf59b6ad4e9aad967771d5aa8cbe"
+    },
+    {
+      "path": "ospray/ospray",
+      "commit": "85af2929937d516997451cbd52d352cf93125ed2"
+    },
+    {
+      "path": "patch/patch",
+      "commit": "e0ae942baeff8786906740f63161415676bbf2d3"
+    },
+    {
+      "path": "perplex/perplex",
+      "commit": "9c2cba2719a6010ed0b940f5cf99612c207df3c6"
+    },
+    {
+      "path": "plief/plief",
+      "commit": "16797b1845fae463eadcb9028dc57c8631bb8fcf"
+    },
+    {
+      "path": "png/libpng",
+      "commit": "3061454d980de7d53608f594194cfac722721d2a"
+    },
+    {
+      "path": "poissonrecon/PoissonRecon",
+      "commit": "cd6dc7d33f028b2e6496f5cd999c25cecd56aff2"
+    },
+    {
+      "path": "proj/PROJ",
+      "commit": "f08fa86c478c4bbbf003b1ec751dd84aa6eca486"
+    },
+    {
+      "path": "pugixml/pugixml",
+      "commit": "c8033ce9d039e7f9d134877c363397b3cfe20816"
+    },
+    {
+      "path": "pystring/pystring",
+      "commit": "7d16bc814ccb4cad03c300dcb77440034caa84f7"
+    },
+    {
+      "path": "qt/qt",
+      "commit": "692cacdb1d6eea560daac0339ca8c45a89ae7c37"
+    },
+    {
+      "path": "re2c/re2c",
+      "commit": "e485c5d572ab8a9f895b2a3c98e5239bf59254c8"
+    },
+    {
+      "path": "regex/regex",
+      "commit": "d26a6f727005adf483c84e95b838ac1c7980fea8"
+    },
+    {
+      "path": "rkcommon/rkcommon",
+      "commit": "674d4cbb1fb9648820f96d05bc3e875db712ab9e"
+    },
+    {
+      "path": "sqlite3/sqlite3",
+      "commit": "262b05a3ab3736ad16ae8fc009e1130f27cb1fc1"
+    },
+    {
+      "path": "stepcode/stepcode",
+      "commit": "ed686ee1d9cb8bf763ab8d61ef6d417c3b45c146"
+    },
+    {
+      "path": "strclear/strclear",
+      "commit": "eac20252bbb96a33074e67b327a59e2785bbb124"
+    },
+    {
+      "path": "tcl/tcl",
+      "commit": "aa6d198af7833313f33120704ce68de422a3bcf3"
+    },
+    {
+      "path": "tiff/libtiff",
+      "commit": "d01a94be176f5f6a87f7ee1c0b32e65416aa2b4d"
+    },
+    {
+      "path": "tinygltf/tinygltf",
+      "commit": "0d9ce1a9561688c6c6e7471430d15a50a0b15f1a"
+    },
+    {
+      "path": "tk/tk",
+      "commit": "6dbe68819aac4a22f6f7a143133ce26c5e8d2b05"
+    },
+    {
+      "path": "tkhtml/tkhtml",
+      "commit": "194cd5a3121936a00f0d8393df324b86c4b7627d"
+    },
+    {
+      "path": "tktable/tktable",
+      "commit": "05e3a95b79c140a5001ba99774209b1ff78026f4"
+    },
+    {
+      "path": "xerces-c/xerces-c",
+      "commit": "53c16411466bf90c62617831fe92ed0f41e70882"
+    },
+    {
+      "path": "yaml-cpp/yaml-cpp",
+      "commit": "f7320141120f720aecc4c32be25586e7da9eb978"
+    },
+    {
+      "path": "zlib/zlib",
+      "commit": "8a7c71fa5e70e0e45522b308e1a0e96a2bc40ec3"
+    },
+    {
+      "path": "zstd/zstd",
+      "commit": "794ea1b0afca0f020f4e57b6732332231fb23c70"
+    }
+  ],
+  "sgm_commit": "2c1914c9287c53a260766ad1daeeffb445f9bf6b",
+  "sgm_archived": true,
+  "cmake_url": "https://github.com/Kitware/CMake/releases/download/v3.31.10/cmake-3.31.10-linux-x86_64.tar.gz",
+  "cmake_sha256": "3cb3dd247b6a1de2d0f4b20c6fd4326c9024e894cebc9dc8699758887e566ca7",
+  "cmake_size_bytes": 55010952,
+  "built_binary_hashes": null,
+  "scope": "Public-source build pins only; no OEM geometry, credentials or private source bytes"
+}
