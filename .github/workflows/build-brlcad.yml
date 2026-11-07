@@ -1,0 +1,57 @@
+name: ADR-001 public BRL-CAD runtime candidate
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: adr001-brlcad-manual-build
+  cancel-in-progress: false
+jobs:
+  build:
+    if: >-
+      github.repository == 'gr8form1/manhardt-brlcad-build' &&
+      github.event.repository.private == false &&
+      github.event_name == 'workflow_dispatch' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Require the approved public-only repository and initial attempt
+        env:
+          REPOSITORY: ${{ github.repository }}
+          PRIVATE: ${{ github.event.repository.private }}
+          ATTEMPT: ${{ github.run_attempt }}
+          EVENT: ${{ github.event_name }}
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          python3 - <<'PY'
+          import os
+          if (os.environ['REPOSITORY'] != 'gr8form1/manhardt-brlcad-build'
+              or os.environ['PRIVATE'] != 'false'
+              or os.environ['ATTEMPT'] != '1'
+              or os.environ['EVENT'] != 'workflow_dispatch'):
+              raise SystemExit('Refused: wrong/private repository, event or repeated attempt')
+          PY
+      - name: Checkout this public control-source commit
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+      - name: Build and package the pinned headless runtime
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: '1'
+          MAKEFLAGS: '-j1'
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: python3 ci/build.py
+      - name: Preserve candidate or failure evidence
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: adr001-brlcad-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 0
+          retention-days: 1
