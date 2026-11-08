@@ -160,6 +160,54 @@ def make_tar(runtime, destination, source_commit):
             'payload_files': len(files)}
 
 
+
+def preserve_compiled_checkpoint(rec, out, targets, run):
+    """Seal public-source ELFs before relocation; not a runnable or qualified bundle.
+
+    A later recovery procedure must independently authenticate this artifact,
+    its provider map, the toolchain and compatible host libraries.
+    """
+    executable = targets['step-g'][0]
+    plugin = targets['step-schema-ap242e2'][0]
+    require(executable.is_file() and plugin.is_file(), 'Checkpoint targets missing')
+    providers, baseline = collect_runtime(rec, [executable, plugin])
+    root = out / 'compiled-checkpoint'
+    require(not root.exists(), 'Checkpoint already exists')
+    root.mkdir()
+    copy_regular(executable, root / 'bin/step-g', 0o755)
+    copy_regular(plugin, root / 'libexec/step' / plugin.name)
+    for name, provider in sorted(providers.items()):
+        require(name not in {'step-g', plugin.name}, 'Checkpoint name collision')
+        copy_regular(provider['source_path'], root / 'lib' / name)
+    rows = []
+    for f in sorted(root.rglob('*')):
+        if f.is_file():
+            rows.append({'path': f.relative_to(root).as_posix(),
+                         'sha256': sha256(f), 'size': f.stat().st_size})
+    write_json(root / 'CHECKPOINT.json', {
+        'schema': 'ADR001_COMPILED_CHECKPOINT/1',
+        'status': 'UNRELOCATED_UNQUALIFIED',
+        'run': run, 'files': rows,
+        'bundled_providers': providers, 'host_baseline': baseline,
+        'source_pins': json.loads((out / 'evidence/source-pins.json').read_text())})
+    destination = out / 'compiled-checkpoint.tar.gz'
+    with destination.open('wb') as stream, gzip.GzipFile(filename='', fileobj=stream,
+                                                        mode='wb', mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive:
+            for f in sorted(p for p in root.rglob('*') if p.is_file()):
+                info = archive.gettarinfo(str(f), arcname='compiled-checkpoint/' + f.relative_to(root).as_posix())
+                require(info.isfile(), 'Checkpoint expects regular files only')
+                info.uid = info.gid = 0
+                info.uname = info.gname = ''
+                info.mtime = 0
+                with f.open('rb') as source:
+                    archive.addfile(info, source)
+    write_json(out / 'evidence/compiled-checkpoint.json', {
+        'status': 'UNRELOCATED_UNQUALIFIED',
+        'sha256': sha256(destination), 'bytes': destination.stat().st_size,
+        'payload_files': len(rows), 'source_commit': run.get('GITHUB_SHA')})
+    shutil.rmtree(root)
+
 def package_runtime(rec, attempt, out, brl, bext, build, ext_build, ext_output, targets, run):
     metadata = out / 'evidence'
     executable = targets['step-g'][0]
