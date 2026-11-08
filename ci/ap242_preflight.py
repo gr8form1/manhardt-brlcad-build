@@ -161,7 +161,7 @@ def write_json(path,obj):path.write_text(json.dumps(obj,sort_keys=True,indent=2)
 def main():
     import signal
     from p2_security import (IMAGE,MEM,PIDS,GateError,verify_container_inspect,
-        verify_canary,bounded_complete_streams,network_evidence,extract_observed_sleep_tree,verify_cleanup_observed)
+        verify_canary,bounded_complete_streams,network_evidence,extract_observed_sleep_tree,verify_cleanup_observed,verify_docker_cgroup_v2)
     parser=argparse.ArgumentParser();parser.add_argument('--output',required=True)
     args=parser.parse_args();out=pathlib.Path(args.output).resolve();out.mkdir(parents=True,exist_ok=True)
     evidence=out/'raw'; evidence.mkdir(exist_ok=True)
@@ -225,7 +225,7 @@ def main():
                      'docker_sha256':hash_file(shutil.which('docker')),
                      'host_netns':rec['host_netns']}
         info=docker_json(cmd('docker_info',['docker','info','--format','{{json .}}'],25),evidence)
-        if info.get('CgroupVersion')!='2' or info.get('OSType')!='linux':raise GateError('Docker cgroup v2 unavailable')
+        rec['docker_cgroup_v2']=verify_docker_cgroup_v2(info)
         rec['docker_version']=stdout_text(cmd('docker_version',['docker','version','--format','{{.Server.Version}}'],20),evidence).strip()
         require_success(cmd('image_pull',['docker','pull','--platform','linux/amd64',IMAGE],120,4_000_000))
         im=docker_json(cmd('image_inspect',['docker','image','inspect',IMAGE,'--format','{{json .}}'],25),evidence)
@@ -251,7 +251,7 @@ def main():
                   '-e','HOME=/scratch','-e','TMPDIR=/scratch',IMAGE,'/bin/sh','-ec',content]
             cr=cmd('create_'+kind,argv,35);require_success(cr);active.append(name)
             observed=docker_json(cmd('inspect_'+kind,['docker','inspect',name,'--format','{{json .}}'],25),evidence)
-            verify_container_inspect(observed,str(runtime),str(fixture_dir),image_id)
+            verify_container_inspect(observed,str(runtime),str(fixture_dir),image_id,info)
             # First verify static settings, then execute the normal/timeout canaries.
             if kind=='normal':
                 run=cmd('start_normal',['docker','start','-a',name],50)
@@ -264,6 +264,7 @@ def main():
                 if len(b)!=2:raise GateError('Incomplete mountinfo section')
                 mountinfo=b[0]
                 rec['normal_evidence']=verify_canary(out_text,rec['host_netns'],mountinfo)
+                rec['normal_evidence']['effective_cgroup_limits_verified_in_running_payload']=True
                 rec['normal_evidence']['mountinfo_sha256']=hash_bytes(mountinfo.encode())
                 cleanup_one(name,kind)
             else:

@@ -1,0 +1,93 @@
+{
+  "Config": {
+    "Entrypoint": null,
+    "Env": [
+      "HOME=/scratch",
+      "TMPDIR=/scratch"
+    ],
+    "Image": "docker.io/library/ubuntu@sha256:2e863c44b718727c860746568e1d54afd13b2fa71b160f5cd9058fc436217b30",
+    "User": "65534:65534",
+    "WorkingDir": ""
+  },
+  "HostConfig": {
+    "Binds": null,
+    "CapAdd": null,
+    "CapDrop": [
+      "ALL"
+    ],
+    "CgroupnsMode": "private",
+    "DeviceRequests": null,
+    "Devices": [],
+    "IpcMode": "none",
+    "Links": null,
+    "Memory": 1073741824,
+    "MemorySwap": 1073741824,
+    "MemorySwappiness": null,
+    "Mounts": [
+      {
+        "ReadOnly": true,
+        "Source": "/public-fixture/runtime",
+        "Target": "/runtime",
+        "Type": "bind"
+      },
+      {
+        "ReadOnly": true,
+        "Source": "/public-fixture/fixtures",
+        "Target": "/fixtures",
+        "Type": "bind"
+      }
+    ],
+    "NanoCpus": 1000000000,
+    "NetworkMode": "none",
+    "PidMode": "",
+    "PidsLimit": 32,
+    "Privileged": false,
+    "ReadonlyPaths": [
+      "/proc/bus",
+      "/proc/fs",
+      "/proc/irq",
+      "/proc/sys",
+      "/proc/sysrq-trigger"
+    ],
+    "ReadonlyRootfs": true,
+    "SecurityOpt": [
+      "no-new-privileges:true"
+    ],
+    "ShmSize": 67108864,
+    "Tmpfs": {
+      "/scratch": "rw,nosuid,nodev,noexec,size=67108864,mode=1777"
+    },
+    "Ulimits": [
+      {
+        "Hard": 0,
+        "Name": "core",
+        "Soft": 0
+      },
+      {
+        "Hard": 8388608,
+        "Name": "fsize",
+        "Soft": 8388608
+      }
+    ],
+    "UsernsMode": "",
+    "VolumesFrom": null
+  },
+  "Image": "sha256:35a88802559dd2077e584394471ddaa1a2c5bfd16893b829ea57619301eb3908",
+  "Mounts": [
+    {
+      "Destination": "/runtime",
+      "RW": false,
+      "Source": "/public-fixture/runtime",
+      "Type": "bind"
+    },
+    {
+      "Destination": "/fixtures",
+      "RW": false,
+      "Source": "/public-fixture/fixtures",
+      "Type": "bind"
+    }
+  ],
+  "State": {
+    "Running": false
+  }
+}

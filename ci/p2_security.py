@@ -1,4 +1,4 @@
-"""ADR-001 P2: strict verification of Docker security evidence; stdlib only.
+"""ADR-001 P3: strict verification of Docker security evidence; stdlib only.
 
 Policies are fail-closed; no unknown config value, marker omission, truncation,
 extra mount, or unobserved timeout can produce PASS. This module never executes CAD.
@@ -31,13 +31,36 @@ def network_evidence(output, host_ns):
     must(output.count('NET_CONNECT_DENIED:yes')==1 and output.count('NET_CONNECT_DENIED:')==1,'Connect-denial evidence missing')
     return {'host':host_ns,'payload':markers[0], 'distinct':True,'routes_empty':True,'ipv6_routes_empty':True,'only_loopback':True,'connect_denied':True}
 
+def verify_docker_cgroup_v2(info):
+    """Positive host observation; a requested Docker setting alone is not enforcement.
+
+    The Docker daemon is outside the payload cgroup. This check only establishes
+    that the observed daemon reports Linux and cgroup v2. Effective zero-swap
+    capacity is qualified separately from actual running-container cgroup files.
+    """
+    must(isinstance(info,dict) and info.get('OSType')=='linux'
+         and type(info.get('CgroupVersion')) is str
+         and info.get('CgroupVersion')=='2',
+         'Positive Docker Linux/cgroup-v2 evidence unavailable')
+    return {'observed_ostype':'linux','observed_cgroup_version':'2'}
+
 def _norm_tmpfs(s):
     return set(s.split(',')) if isinstance(s,str) else set()
 
-def verify_hostconfig(cfg, runtime, fixtures, image_id):
+def verify_hostconfig(cfg, runtime, fixtures, image_id, docker_info):
+    verify_docker_cgroup_v2(docker_info)
     must(isinstance(cfg,dict),'No HostConfig')
-    for key,want in [('ReadonlyRootfs',True),('NetworkMode','none'),('IpcMode','none'),('Memory',MEM),('MemorySwap',MEM),('MemorySwappiness',0),('PidsLimit',PIDS),('NanoCpus',1000000000),('CgroupnsMode','private')]:
+    for key,want in [('ReadonlyRootfs',True),('NetworkMode','none'),('IpcMode','none'),('Memory',MEM),('MemorySwap',MEM),('PidsLimit',PIDS),('NanoCpus',1000000000),('CgroupnsMode','private')]:
         must(type(cfg.get(key)) is type(want) and cfg.get(key)==want,'HostConfig '+key+' mismatch/unknown')
+    # On the positively verified cgroup-v2 runner, Docker 28.0.4 reports
+    # MemorySwappiness:null even with --memory-swappiness 0. Null is a
+    # compatibility result only, NEVER evidence of swap prohibition.
+    must('MemorySwappiness' in cfg,'HostConfig MemorySwappiness missing')
+    swappiness=cfg['MemorySwappiness']
+    must(swappiness is None or (type(swappiness) is int and swappiness==0),
+         'HostConfig MemorySwappiness unsafe/unknown')
+    # This observation cannot yield a full PASS until verify_cgroups verifies
+    # memory.max, memory.swap.max, memory.swap.current and pids.max in-container.
     must('ALL' in [str(x).upper() for x in cfg.get('CapDrop') or []], 'ALL capabilities not dropped')
     must('no-new-privileges:true' in cfg.get('SecurityOpt',[]) or 'no-new-privileges' in cfg.get('SecurityOpt',[]),'no-new-privileges missing')
     must(cfg.get('Privileged') is False,'Privileged setting unknown/enabled')
@@ -73,7 +96,7 @@ def verify_hostconfig(cfg, runtime, fixtures, image_id):
     must(seen==expected,'Mounted paths incorrect')
     return {'hostconfig_checked':True,'mount_destinations':sorted(t for _,t in seen)}
 
-def verify_container_inspect(observed, runtime, fixtures, image_id):
+def verify_container_inspect(observed, runtime, fixtures, image_id, docker_info):
     must(isinstance(observed,dict),'Full container inspect missing')
     must(observed.get('Image')==image_id,'Container image ID mismatch')
     must((observed.get('Config') or {}).get('Image')==IMAGE,'Container requested image digest mismatch')
@@ -84,7 +107,7 @@ def verify_container_inspect(observed, runtime, fixtures, image_id):
     must(config.get('Env') is not None,'Environment unavailable')
     must(set(['HOME=/scratch','TMPDIR=/scratch']) <= set(config['Env']),'Required scratch env missing')
     must(all('GH_TOKEN' not in str(s) and 'GITHUB_TOKEN' not in str(s) for s in config['Env']),'Credential leaked to payload')
-    out=verify_hostconfig(observed.get('HostConfig'),runtime,fixtures,image_id)
+    out=verify_hostconfig(observed.get('HostConfig'),runtime,fixtures,image_id,docker_info)
     mi=observed.get('Mounts')
     must(isinstance(mi,list) and len(mi)==2,'Effective mounts incomplete/extra')
     for m in mi:
@@ -114,6 +137,12 @@ def verify_mountinfo(text):
         must(p in by, 'Required mount absent '+p)
     for p in ['/','/runtime','/fixtures']:
         must('ro' in by[p]['opts'] and 'rw' not in by[p]['opts'],'Required mount not read-only '+p)
+    # Mountinfo carries VFS and superblock options; a read-only VFS cgroup2
+    # mount can legitimately report an rw superblock. The P2 pseudo-mount
+    # policy is unchanged. Require the in-container cgroup2 type and then
+    # qualify actual cgroup files, not aggregated mount-option strings.
+    must('/sys/fs/cgroup' in by and by['/sys/fs/cgroup']['fstype']=='cgroup2',
+         'In-container cgroup2 filesystem mount absent or wrong type')
     sc=by['/scratch'];must(sc['fstype']=='tmpfs' and 'rw' in sc['opts'] and {'nosuid','nodev','noexec'}<=sc['opts'],'Scratch mount incorrect')
     must(any(opt in sc['opts'] for opt in ('size=65536k','size=67108864','size=64m')),'Scratch effective size not 64MiB')
     # Docker's kernel-managed pseudo mounts are not ordinary writable storage.

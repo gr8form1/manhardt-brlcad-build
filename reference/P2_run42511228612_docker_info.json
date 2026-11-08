@@ -1,0 +1,6 @@
+{
+  "CgroupDriver": "systemd",
+  "CgroupVersion": "2",
+  "OSType": "linux",
+  "ServerVersion": "28.0.4"
+}

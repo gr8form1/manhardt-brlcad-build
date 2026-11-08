@@ -1,8 +1,13 @@
-"""Offline, no Docker/no network, regression tests (P2)."""
+"""Offline, no Docker/no network, P2-preserving P3 regression tests."""
 import io, json, pathlib, sys, tarfile, tempfile, unittest
 sys.path.insert(0,str(pathlib.Path(__file__).parent))
 import ap242_preflight as pre
 import p2_security as sec
+import p3_finalize as finalizer
+
+SOURCE_DIR=pathlib.Path(__file__).resolve().parents[1]
+ACTUAL_INFO=json.loads((SOURCE_DIR/"reference/P2_run42511228612_docker_info.json").read_text())
+ACTUAL_INSPECT=json.loads((SOURCE_DIR/"reference/P2_run42511228612_docker_inspect.json").read_text())
 
 BASE={
  'ReadonlyRootfs':True,'NetworkMode':'none','IpcMode':'none','Memory':sec.MEM,
@@ -45,6 +50,111 @@ class P2(unittest.TestCase):
         self.assertEqual(pre.ZIP_SHA,'437fd42a8044c836d255fdde4b318a4d7ca92cbd3cbc073e8397ee9e3e86ec65')
         self.assertEqual(pre.TAR_SHA,'4447f9cc8ede6f0386a4a289c963d5b04df93aad25016e60d960d23e8cdece0c')
         self.assertEqual(pre.IMAGE,sec.IMAGE)
+    def test_p31_minimized_docker_reference_hashes(self):
+        import hashlib
+        # Whitelisted/minimized replay of the independently accepted, full original records.
+        # Complete original file identities are retained in the sealed developer evidence.
+        hashes={'P2_run42511228612_docker_info.json': '87516538cbd89afb36beaddc02bae8e19ebe43c62921b18d395fd049c5903c8b', 'P2_run42511228612_docker_inspect.json': 'c24fe3d8209c4c0d226141008cbed8380afe3a050f97c071887da9240e258f77'}
+        for name,want in hashes.items():
+            with self.subTest(name=name):
+                self.assertEqual(hashlib.sha256((SOURCE_DIR/'reference'/name).read_bytes()).hexdigest(),want)
+        self.assertEqual(ACTUAL_INFO['ServerVersion'],'28.0.4')
+        self.assertEqual(ACTUAL_INFO['CgroupVersion'],'2')
+        self.assertEqual(ACTUAL_INSPECT['HostConfig']['MemorySwappiness'],None)
+        self.assertIs(ACTUAL_INSPECT['State']['Running'],False)
+        # The clean public test fixture must not leak a live runner path or identity.
+        for name in hashes:
+            data=(SOURCE_DIR/'reference'/name).read_text()
+            self.assertNotIn('/home/runner/',data)
+            self.assertNotIn('runnervm',data)
+        self.assertEqual(ACTUAL_INSPECT['HostConfig']['Mounts'][0]['Source'],'/public-fixture/runtime')
+        self.assertEqual(ACTUAL_INSPECT['HostConfig']['Mounts'][1]['Source'],'/public-fixture/fixtures')
+    def test_p31_derived_inspect_null_swappiness_passes_only_static_gate(self):
+        cfg=ACTUAL_INSPECT
+        r=sec.verify_container_inspect(cfg,cfg['HostConfig']['Mounts'][0]['Source'],
+             cfg['HostConfig']['Mounts'][1]['Source'],cfg['Image'],ACTUAL_INFO)
+        self.assertTrue(r['hostconfig_checked'])
+        # The actual P2 container was never started. No cgroup/kernel evidence exists.
+        with self.assertRaises(sec.GateError):sec.verify_canary('', 'net:[100]', MOUNTS)
+    def test_p3_explicit_cgroup_v2_proof_required(self):
+        self.assertEqual(sec.verify_docker_cgroup_v2(ACTUAL_INFO)['observed_cgroup_version'],'2')
+        for val in ['1',None,'3',2,True,'',{},'v2']:
+            info=dict(ACTUAL_INFO,CgroupVersion=val)
+            with self.subTest(value=val),self.assertRaises(sec.GateError):
+                sec.verify_hostconfig(dict(BASE,MemorySwappiness=None),'/r','/f','image',info)
+        with self.assertRaises(sec.GateError):sec.verify_hostconfig(
+            dict(BASE,MemorySwappiness=None),'/r','/f','image',dict(ACTUAL_INFO,OSType='windows'))
+    def test_p3_swappiness_null_or_zero_only_with_positive_v2(self):
+        for sw in (None,0):
+            self.assertTrue(sec.verify_hostconfig(dict(BASE,MemorySwappiness=sw),
+                '/r','/f','image',ACTUAL_INFO)['hostconfig_checked'])
+        for sw in (1,-1,10,100,False,True,'0','null',0.0,[],{}):
+            with self.subTest(sw=sw),self.assertRaises(sec.GateError):
+                sec.verify_hostconfig(dict(BASE,MemorySwappiness=sw),'/r','/f','image',ACTUAL_INFO)
+        cfg=BASE.copy();cfg.pop('MemorySwappiness')
+        with self.assertRaises(sec.GateError):sec.verify_hostconfig(cfg,'/r','/f','image',ACTUAL_INFO)
+    def test_p31_derived_inspect_rejects_unsafe_resource_mutations(self):
+        import copy
+        runtime=ACTUAL_INSPECT['HostConfig']['Mounts'][0]['Source']
+        fixtures=ACTUAL_INSPECT['HostConfig']['Mounts'][1]['Source']
+        for key,val in [('Memory',sec.MEM-1),('MemorySwap',sec.MEM*2),('PidsLimit',30),
+                        ('MemorySwappiness',50),('NetworkMode','bridge'),('ReadonlyRootfs',False)]:
+            obj=copy.deepcopy(ACTUAL_INSPECT);obj['HostConfig'][key]=val
+            with self.subTest(key=key),self.assertRaises(sec.GateError):
+                sec.verify_container_inspect(obj,runtime,fixtures,obj['Image'],ACTUAL_INFO)
+    def test_p3_running_cgroup_four_mandatory_fields_missing_duplicated_or_wrong(self):
+        self.assertEqual(sec.verify_cgroups(output())['memory.swap.current'],'0')
+        for key in ('memory.max','memory.swap.max','memory.swap.current','pids.max'):
+            good=key+':'+EVENTS[key]
+            for new in ('', key+':bad', key+':max', good+'\n'+good):
+                altered=output().replace(good,new,1)
+                with self.subTest(key=key,new=new),self.assertRaises(sec.GateError):
+                    sec.verify_cgroups(altered)
+        for key,wrong in [('memory.max','1073741823'),('memory.swap.max','1'),
+                          ('memory.swap.current','1'),('pids.max','33')]:
+            with self.subTest(key=key,wrong=wrong),self.assertRaises(sec.GateError):
+                sec.verify_canary(output().replace(key+':'+EVENTS[key],key+':'+wrong,1),
+                                  'net:[100]',MOUNTS)
+    def test_p3_requires_actual_cgroup2_mount(self):
+        for bad in (MOUNTS.replace(' - cgroup2 cgroup2 ro',' - cgroup cgroup ro'),
+                    MOUNTS.replace('9 1 0:9 / /sys/fs/cgroup ro - cgroup2 cgroup2 ro\n','')):
+            with self.subTest(bad=bad[-100:]),self.assertRaises(sec.GateError):
+                sec.verify_canary(output(),'net:[100]',bad)
+    def test_p3_final_inventory_includes_cleanup_and_controller_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=pathlib.Path(d)
+            (root/'raw').mkdir()
+            for n,data in [('cleanup_before.txt','container-id\n'),('cleanup_after.txt',''),
+                           ('SECURITY_PREFLIGHT.json','{"status":"HOLD"}'),
+                           ('SHA256SUMS.txt','p2 census\n'),('raw/probe.stdout.bin','observed')]:
+                p=root/n;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(data)
+            result=finalizer.seal(root)
+            self.assertEqual(result['status'],'PASS_EVIDENCE_SEAL_ONLY')
+            manifest=(root/'FINAL_SHA256SUMS.txt').read_text()
+            for name in ['cleanup_before.txt','cleanup_after.txt','SECURITY_PREFLIGHT.json',
+                         'SHA256SUMS.txt','FINAL_EVIDENCE_STATUS.json','raw/probe.stdout.bin']:
+                self.assertIn('  '+name+'\n',manifest)
+            self.assertNotIn('  FINAL_SHA256SUMS.txt\n',manifest)
+            with self.assertRaises(RuntimeError):finalizer.seal(root)
+    def test_p3_final_inventory_missing_or_nonempty_cleanup_fails_closed(self):
+        for case in ['missing_before','missing_after','nonempty_after','cleanup_failure']:
+            with tempfile.TemporaryDirectory() as d:
+                root=pathlib.Path(d)
+                (root/'SECURITY_PREFLIGHT.json').write_text('{"status":"HOLD"}')
+                (root/'SHA256SUMS.txt').write_text('precleanup manifest')
+                if case!='missing_before':(root/'cleanup_before.txt').write_text('')
+                if case!='missing_after':(root/'cleanup_after.txt').write_text('container' if case=='nonempty_after' else '')
+                if case=='cleanup_failure':(root/'cleanup_failure.txt').write_text('failed')
+                result=finalizer.seal(root)
+                with self.subTest(case=case):
+                    self.assertEqual(result['status'],'HOLD_INCOMPLETE_CLEANUP_EVIDENCE')
+                    self.assertIn('  FINAL_EVIDENCE_STATUS.json\n',(root/'FINAL_SHA256SUMS.txt').read_text())
+    def test_p3_final_inventory_symlink_escape_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=pathlib.Path(d);(root/'cleanup_before.txt').write_text('');(root/'cleanup_after.txt').write_text('')
+            (root/'SECURITY_PREFLIGHT.json').write_text('{}');(root/'SHA256SUMS.txt').write_text('x')
+            (root/'bad_link').symlink_to('/etc/passwd')
+            with self.assertRaises(RuntimeError):finalizer.seal(root)
     def test_network_valid(self):self.assertTrue(sec.network_evidence(output(),'net:[100]')['distinct'])
     def test_network_absent_rejected(self):
         with self.assertRaises(sec.GateError):sec.network_evidence(output().replace('NETNS_MARKER:net:[200]',''),'net:[100]')
@@ -58,29 +168,29 @@ class P2(unittest.TestCase):
         with self.assertRaises(sec.GateError):sec.network_evidence(output().replace('ROUTES_EMPTY:yes',''),'net:[100]')
     def test_network_missing_connect_rejected(self):
         with self.assertRaises(sec.GateError):sec.network_evidence(output().replace('NET_CONNECT_DENIED:yes',''),'net:[100]')
-    def test_valid_hostconfig(self):self.assertTrue(sec.verify_hostconfig(BASE,'/r','/f','image')['hostconfig_checked'])
+    def test_valid_hostconfig(self):self.assertTrue(sec.verify_hostconfig(BASE,'/r','/f','image',ACTUAL_INFO)['hostconfig_checked'])
     def test_config_each_critical_setting_fails(self):
         mutations={'ReadonlyRootfs':False,'NetworkMode':'bridge','IpcMode':'private',
-            'Memory':999,'MemorySwap':2*sec.MEM,'PidsLimit':99,'NanoCpus':0,'MemorySwappiness':None,
+            'Memory':999,'MemorySwap':2*sec.MEM,'PidsLimit':99,'NanoCpus':0,'MemorySwappiness':15,
             'Privileged':True,'CgroupnsMode':'host','SecurityOpt':[],'CapDrop':[],'Ulimits':[],'Tmpfs':{},'Mounts':[],
             'Binds':['/host:/x'],'VolumesFrom':['unsafe'],'Links':['other'],'Devices':[{'PathOnHost':'/dev/sda'}],'CapAdd':['SYS_ADMIN']}
         for k,v in mutations.items():
             cfg=BASE.copy();cfg[k]=v
-            with self.subTest(key=k),self.assertRaises(sec.GateError):sec.verify_hostconfig(cfg,'/r','/f','image')
+            with self.subTest(key=k),self.assertRaises(sec.GateError):sec.verify_hostconfig(cfg,'/r','/f','image',ACTUAL_INFO)
     def test_bad_tmpfs_flags_fails(self):
         for flag in ['noexec','nosuid','nodev','size=67108864']:
             cfg=BASE.copy();cfg['Tmpfs']={'/scratch':','.join(x for x in BASE['Tmpfs']['/scratch'].split(',') if x!=flag)}
-            with self.subTest(flag=flag),self.assertRaises(sec.GateError):sec.verify_hostconfig(cfg,'/r','/f','image')
+            with self.subTest(flag=flag),self.assertRaises(sec.GateError):sec.verify_hostconfig(cfg,'/r','/f','image',ACTUAL_INFO)
     def test_ro_bind_fails_if_rw(self):
         cfg=BASE.copy();cfg['Mounts']=[dict(BASE['Mounts'][0],ReadOnly=False),BASE['Mounts'][1]]
-        with self.assertRaises(sec.GateError):sec.verify_hostconfig(cfg,'/r','/f','image')
+        with self.assertRaises(sec.GateError):sec.verify_hostconfig(cfg,'/r','/f','image',ACTUAL_INFO)
     def test_full_inspect_image_user(self):
         valid={'Image':'sha256:image','Config':{'Image':sec.IMAGE,'User':'65534:65534','WorkingDir':'','Entrypoint':None,'Env':['HOME=/scratch','TMPDIR=/scratch']},'HostConfig':BASE,
                'Mounts':[{'Type':'bind','Source':'/r','Destination':'/runtime','RW':False},{'Type':'bind','Source':'/f','Destination':'/fixtures','RW':False}]}
-        self.assertTrue(sec.verify_container_inspect(valid,'/r','/f','sha256:image'))
+        self.assertTrue(sec.verify_container_inspect(valid,'/r','/f','sha256:image',ACTUAL_INFO))
         for k,v in [('Image','sha256:wrong'),('Config',dict(valid['Config'],User='0:0'))]:
             c=valid.copy();c[k]=v
-            with self.subTest(k=k),self.assertRaises(sec.GateError):sec.verify_container_inspect(c,'/r','/f','sha256:image')
+            with self.subTest(k=k),self.assertRaises(sec.GateError):sec.verify_container_inspect(c,'/r','/f','sha256:image',ACTUAL_INFO)
     def test_mountinfo_valid(self):self.assertEqual(sec.verify_mountinfo(MOUNTS)['scratch'],'tmpfs')
     def test_extra_writable_mount_rejected(self):
         with self.assertRaises(sec.GateError):sec.verify_mountinfo(MOUNTS+'10 1 0:10 / /var/log rw - tmpfs tmpfs rw\n')

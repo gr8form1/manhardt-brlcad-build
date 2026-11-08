@@ -1,4 +1,4 @@
-name: ADR-001 AP242e2 P2 - PRE-FLIGHT SECURITY ONLY
+name: ADR-001 AP242e2 P3 - PRE-FLIGHT SECURITY ONLY
 'on':
   workflow_dispatch:
 permissions:
@@ -44,10 +44,10 @@ jobs:
           umask 077
           mkdir -p out
           python3 -c 'import yaml; assert yaml.__version__'
-          python3 -m py_compile ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py
+          python3 -m py_compile ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py ci/p3_finalize.py
           python3 -m unittest discover -s ci -p test_preflight.py -v 2>&1 | tee out/PRE_ACQUISITION_TESTS.log
           test "${PIPESTATUS[0]}" -eq 0
-          sha256sum ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py ci/fixture_canary.sh ci/process_tree_canary.sh .github/workflows/adr001-public-ap242-preflight.yml > out/CONTROL_SOURCE_SHA256SUMS.txt
+          sha256sum ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py ci/p3_finalize.py ci/fixture_canary.sh ci/process_tree_canary.sh .github/workflows/adr001-public-ap242-preflight.yml reference/P2_run42511228612_docker_info.json reference/P2_run42511228612_docker_inspect.json > out/CONTROL_SOURCE_SHA256SUMS.txt
       - name: Authenticated artifact acquisition and confined security canaries only
         shell: bash --noprofile --norc -euo pipefail {0}
         env:
@@ -73,11 +73,17 @@ jobs:
             printf 'Docker unavailable; cleanup unverified\n' > out/cleanup_failure.txt
             exit 1
           fi
+      - name: Seal full post-cleanup evidence inventory including failures
+        if: ${{ always() }}
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          umask 077
+          python3 ci/p3_finalize.py --output out
       - name: Archive bounded raw diagnostics including failures
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: adr001-public-ap242-p2-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          name: adr001-public-ap242-p3-preflight-${{ github.run_id }}-${{ github.run_attempt }}
           path: out/
           if-no-files-found: error
           include-hidden-files: false
