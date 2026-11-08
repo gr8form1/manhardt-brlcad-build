@@ -173,4 +173,66 @@ class Helpers(unittest.TestCase):
         self.assertFalse((Path(__file__).resolve().parents[1] / 'out').exists())
 
 
+    def test_20_loader_map_accepts_glibc_dynamic_loader(self):
+        sample = (' linux-vdso.so.1 (0x7fa)\\n'
+                  ' libbu.so.20 => /lib/libbu.so.20 (0x111)\\n'
+                  ' /lib64/ld-linux-x86-64.so.2 (0x222)\\n')
+        expected = str(Path('/lib64/ld-linux-x86-64.so.2').resolve())
+        mapping = common.ldd_map(sample)
+        self.assertEqual(mapping['ld-linux-x86-64.so.2'], expected)
+        self.assertEqual(mapping['libbu.so.20'], str(Path('/lib/libbu.so.20').resolve()))
+
+    def test_21_loader_map_rejects_unknown_bare_paths(self):
+        for bad in (' /tmp/ld-linux-x86-64.so.2 (0x1)\\n',
+                    ' /lib64/ld-linux-aarch64.so.1 (0x1)\\n',
+                    ' /lib64/ld-linux-x86-64.so.2 nonsensical\\n'):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                common.ldd_map(bad)
+
+    def test_22_loader_map_rejects_unresolved_with_loader(self):
+        with self.assertRaises(ValueError):
+            common.ldd_map(' libmissing.so => not found\\n /lib64/ld-linux-x86-64.so.2 (0x10)\\n')
+
+    def test_23_checkpoint_contains_compiled_elf_closure_and_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d);out = root / 'out';out.mkdir()
+            (out / 'evidence').mkdir()
+            (out / 'evidence/source-pins.json').write_text('{"brlcad_commit":"frozen"}')
+            source = root / 'src';source.mkdir()
+            exe = source / 'step-g'; plugin = source / 'libstep-schema-ap242e2.so'
+            dependency = source / 'libbu.so.20'
+            for p, value in [(exe, b'example-executable'), (plugin, b'example-plugin'),
+                             (dependency, b'example-library')]:
+                p.write_bytes(value)
+            class FakeRecorder:
+                pass
+            with patch.object(bundle, 'collect_runtime', return_value=(
+                {'libbu.so.20': {'source_path': str(dependency),
+                                'sha256': common.sha256(dependency)}}, {})):
+                bundle.preserve_compiled_checkpoint(FakeRecorder(), out, {
+                    'step-g': [exe], 'step-schema-ap242e2': [plugin]},
+                    {'GITHUB_SHA': 'frozen'})
+            sealed = out / 'compiled-checkpoint.tar.gz'
+            self.assertTrue(sealed.is_file())
+            self.assertFalse((out / 'compiled-checkpoint').exists())
+            receipt = json.loads((out / 'evidence/compiled-checkpoint.json').read_text())
+            self.assertEqual(receipt['sha256'], common.sha256(sealed))
+            with tarfile.open(sealed) as archive:
+                names = set(archive.getnames())
+                self.assertIn('compiled-checkpoint/bin/step-g', names)
+                self.assertIn('compiled-checkpoint/libexec/step/libstep-schema-ap242e2.so', names)
+                self.assertIn('compiled-checkpoint/lib/libbu.so.20', names)
+                manifest = json.load(archive.extractfile('compiled-checkpoint/CHECKPOINT.json'))
+                self.assertEqual(manifest['status'], 'UNRELOCATED_UNQUALIFIED')
+                for row in manifest['files']:
+                    actual = archive.extractfile('compiled-checkpoint/' + row['path']).read()
+                    self.assertEqual(hashlib.sha256(actual).hexdigest(), row['sha256'])
+
+    def test_24_checkpoint_never_runs_geometry(self):
+        import inspect
+        source = inspect.getsource(bundle.preserve_compiled_checkpoint)
+        for forbidden in ('--repair', 'ctest', 'step-g --', 'mged', 'curl', 'git clone'):
+            self.assertNotIn(forbidden, source)
+
+
 if __name__ == '__main__': unittest.main(verbosity=2)
