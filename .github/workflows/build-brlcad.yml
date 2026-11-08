@@ -39,6 +39,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
           submodules: false
+      - name: Offline helper and checkpoint regression checks
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: python3 -m unittest discover -s tests -v
       - name: Build and package the pinned headless runtime
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: '1'
