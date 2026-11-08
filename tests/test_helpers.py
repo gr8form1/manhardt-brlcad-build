@@ -174,24 +174,24 @@ class Helpers(unittest.TestCase):
 
 
     def test_20_loader_map_accepts_glibc_dynamic_loader(self):
-        sample = (' linux-vdso.so.1 (0x7fa)\\n'
-                  ' libbu.so.20 => /lib/libbu.so.20 (0x111)\\n'
-                  ' /lib64/ld-linux-x86-64.so.2 (0x222)\\n')
+        sample = (' linux-vdso.so.1 (0x7fa)\n'
+                  ' libbu.so.20 => /lib/libbu.so.20 (0x111)\n'
+                  ' /lib64/ld-linux-x86-64.so.2 (0x222)\n')
         expected = str(Path('/lib64/ld-linux-x86-64.so.2').resolve())
         mapping = common.ldd_map(sample)
         self.assertEqual(mapping['ld-linux-x86-64.so.2'], expected)
         self.assertEqual(mapping['libbu.so.20'], str(Path('/lib/libbu.so.20').resolve()))
 
     def test_21_loader_map_rejects_unknown_bare_paths(self):
-        for bad in (' /tmp/ld-linux-x86-64.so.2 (0x1)\\n',
-                    ' /lib64/ld-linux-aarch64.so.1 (0x1)\\n',
-                    ' /lib64/ld-linux-x86-64.so.2 nonsensical\\n'):
+        for bad in (' /tmp/ld-linux-x86-64.so.2 (0x1)\n',
+                    ' /lib64/ld-linux-aarch64.so.1 (0x1)\n',
+                    ' /lib64/ld-linux-x86-64.so.2 nonsensical\n'):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 common.ldd_map(bad)
 
     def test_22_loader_map_rejects_unresolved_with_loader(self):
         with self.assertRaises(ValueError):
-            common.ldd_map(' libmissing.so => not found\\n /lib64/ld-linux-x86-64.so.2 (0x10)\\n')
+            common.ldd_map(' libmissing.so => not found\n /lib64/ld-linux-x86-64.so.2 (0x10)\n')
 
     def test_23_checkpoint_contains_compiled_elf_closure_and_receipt(self):
         with tempfile.TemporaryDirectory() as d:
