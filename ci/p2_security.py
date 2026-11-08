@@ -118,42 +118,139 @@ def verify_container_inspect(observed, runtime, fixtures, image_id, docker_info)
 def _unescape_mount(v):
     return re.sub(r'\\([0-7]{3})',lambda m:chr(int(m.group(1),8)),v)
 
+# The only writable Docker-masked /proc mounts qualified by this campaign.
+# Their provenance must be established from the SAME container's Docker inspect
+# HostConfig.MaskedPaths, and their mountinfo source must be the /dev tmpfs's
+# /null mount root. This is not a general /proc or tmpfs write exception.
+MASKED_NULL_PATHS=frozenset({
+    '/proc/interrupts', '/proc/kcore', '/proc/keys',
+    '/proc/latency_stats', '/proc/timer_list',
+})
+SYSTEM_RO_PATHS=frozenset({'/etc/hosts','/etc/hostname','/etc/resolv.conf'})
+REQUIRED_RO_PATHS=frozenset({'/','/runtime','/fixtures'}) | SYSTEM_RO_PATHS
+PSEUDO_FILESYSTEMS={
+    '/proc':'proc', '/dev':'tmpfs', '/dev/pts':'devpts',
+    '/sys':'sysfs', '/sys/fs/cgroup':'cgroup2', '/dev/mqueue':'mqueue',
+}
+
+
+def _option_set(raw,where):
+    must(bool(raw) and isinstance(raw,str), 'Empty mount options: '+where)
+    result=raw.split(',')
+    must(all(result) and len(result)==len(set(result)),
+         'Empty or duplicate mount option: '+where)
+    return set(result)
+
+
+def _single_readwrite_mode(opts,where):
+    must(('ro' in opts) != ('rw' in opts),
+         'Missing or contradictory ro/rw mount mode: '+where)
+
+
 def parse_mountinfo(text):
-    must(isinstance(text,str) and 0<len(text)<1_000_000,'Mountinfo missing/over cap')
-    mounts=[]
+    """Parse /proc/self/mountinfo preserving VFS vs superblock semantics.
+
+    VFS options are field 6 BEFORE ` - `; superblock options are field 3
+    AFTER ` - `. Never union them: a read-only bind can legitimately have
+    VFS ro with a writable superblock.
+    """
+    must(isinstance(text,str) and 0<len(text)<1_000_000,
+         'Mountinfo missing/over cap')
+    mounts=[];ids=set();points=set()
     for row in text.splitlines():
         left,sep,right=row.partition(' - ')
-        must(bool(sep),'Malformed mountinfo row')
+        must(bool(sep) and right.count(' - ')==0,'Malformed mountinfo separator')
         p=left.split();q=right.split()
         must(len(p)>=6 and len(q)>=3,'Incomplete mountinfo row')
-        mounts.append({'point':_unescape_mount(p[4]),'opts':set(p[5].split(',')) | set(q[2].split(',')),'fstype':q[0],'src':q[1]})
+        must(p[0].isdigit() and p[1].isdigit() and
+             re.fullmatch(r'\d+:\d+',p[2]) is not None,
+             'Invalid mount identity/device')
+        mid=int(p[0]);parent=int(p[1])
+        point=_unescape_mount(p[4]);mount_root=_unescape_mount(p[3])
+        must(point.startswith('/') and mount_root.startswith('/'),
+             'Mountpoint/root not absolute')
+        must(mid not in ids and point not in points,
+             'Duplicated mount ID or mountpoint: '+point)
+        ids.add(mid);points.add(point)
+        vfs=_option_set(p[5],'VFS '+point)
+        super_opts=_option_set(q[2],'superblock '+point)
+        _single_readwrite_mode(vfs,'VFS '+point)
+        _single_readwrite_mode(super_opts,'superblock '+point)
+        must(q[0] and q[1],'Missing filesystem type/source')
+        mounts.append({'id':mid,'parent':parent,'devno':p[2],
+                       'root':mount_root,'point':point,
+                       'mount_opts':vfs,'super_opts':super_opts,
+                       'fstype':q[0],'src':_unescape_mount(q[1])})
     must(bool(mounts),'No mount entries')
     return mounts
 
-def verify_mountinfo(text):
+
+def verify_mountinfo(text,masked_paths=None):
     mounts=parse_mountinfo(text)
     by={m['point']:m for m in mounts}
-    for p in ['/','/runtime','/fixtures','/scratch']:
-        must(p in by, 'Required mount absent '+p)
-    for p in ['/','/runtime','/fixtures']:
-        must('ro' in by[p]['opts'] and 'rw' not in by[p]['opts'],'Required mount not read-only '+p)
-    # Mountinfo carries VFS and superblock options; a read-only VFS cgroup2
-    # mount can legitimately report an rw superblock. The P2 pseudo-mount
-    # policy is unchanged. Require the in-container cgroup2 type and then
-    # qualify actual cgroup files, not aggregated mount-option strings.
+    must(REQUIRED_RO_PATHS <= set(by),
+         'Missing required root/input/Docker system read-only mounts: '+
+         ','.join(sorted(REQUIRED_RO_PATHS-set(by))))
+    for path in sorted(REQUIRED_RO_PATHS):
+        must('ro' in by[path]['mount_opts'] and
+             'rw' not in by[path]['mount_opts'],
+             'Required VFS mount not read-only '+path)
+
     must('/sys/fs/cgroup' in by and by['/sys/fs/cgroup']['fstype']=='cgroup2',
          'In-container cgroup2 filesystem mount absent or wrong type')
-    sc=by['/scratch'];must(sc['fstype']=='tmpfs' and 'rw' in sc['opts'] and {'nosuid','nodev','noexec'}<=sc['opts'],'Scratch mount incorrect')
-    must(any(opt in sc['opts'] for opt in ('size=65536k','size=67108864','size=64m')),'Scratch effective size not 64MiB')
-    # Docker's kernel-managed pseudo mounts are not ordinary writable storage.
-    # Accept only explicitly named API/device mounts, with negative write canaries.
-    pseudo={'/proc','/dev','/dev/pts','/sys','/sys/fs/cgroup','/dev/mqueue'}
+    must('/scratch' in by,'Scratch mount missing')
+    sc=by['/scratch']
+    must(sc['fstype']=='tmpfs' and sc['src']=='tmpfs' and
+         'rw' in sc['mount_opts'] and
+         {'nosuid','nodev','noexec'} <= sc['mount_opts'],
+         'Scratch VFS mount missing security flags or wrong type')
+    sizes=[x for x in sc['super_opts'] if x.startswith('size=')]
+    must(len(sizes)==1 and sizes[0] in ('size=65536k','size=67108864','size=64m'),
+         'Scratch superblock size not exactly 64 MiB')
+
+    # P3.2.1 positive evidence completeness: this pinned runner MUST expose
+    # all five independently authenticated /dev/null masks, even when none
+    # would otherwise be counted as an observed writable mount.
+    must(isinstance(masked_paths,list) and
+         all(isinstance(x,str) for x in masked_paths) and
+         len(set(masked_paths))==len(masked_paths),
+         'Docker masked-path evidence missing, malformed or duplicated')
+    masked_set=set(masked_paths)
+    observed_null=set(by)&MASKED_NULL_PATHS
+    must(observed_null==MASKED_NULL_PATHS,
+         'Incomplete /dev/null masked mount set')
+    must(MASKED_NULL_PATHS<=masked_set,
+         'Docker HostConfig.MaskedPaths does not authenticate five masks')
+    dev=by.get('/dev');proc=by.get('/proc')
+    for path in sorted(observed_null):
+        m=by[path]
+        must(dev is not None and proc is not None and
+             dev['fstype']=='tmpfs' and dev['src']=='tmpfs' and
+             m['fstype']=='tmpfs' and m['src']=='tmpfs' and
+             m['root']=='/null' and m['devno']==dev['devno'] and
+             m['parent']==proc['id'] and 'rw' in m['mount_opts'] and
+             'nosuid' in m['mount_opts'],
+             'Unqualified masked /dev/null mount: '+path)
+
+    # No wildcard pseudo-filesystem exception: exact path/fstype pairing only.
     for m in mounts:
-        p=m['point'];opts=m['opts']
-        if 'rw' in opts:
-            must(p=='/scratch' or (p in pseudo and m['fstype'] in {'proc','sysfs','cgroup2','devpts','tmpfs','mqueue'}), 'Unexpected writable mount: '+p)
-    must('/dev/shm' not in by or 'ro' in by['/dev/shm']['opts'],'Writable /dev/shm present')
-    return {'mount_count':len(mounts),'writable_mounts':sorted(m['point'] for m in mounts if 'rw' in m['opts']),'scratch':sc['fstype']}
+        p=m['point']
+        if 'rw' in m['mount_opts']:
+            must(p=='/scratch' or p in observed_null or
+                 (p in PSEUDO_FILESYSTEMS and
+                  m['fstype']==PSEUDO_FILESYSTEMS[p]),
+                 'Unexpected writable VFS mount: '+p)
+    must('/dev/shm' not in by or 'ro' in by['/dev/shm']['mount_opts'],
+         'Writable /dev/shm present')
+    return {'mount_count':len(mounts),
+            'writable_mounts':sorted(m['point'] for m in mounts
+                                      if 'rw' in m['mount_opts']),
+            'root_vfs_ro':True,
+            'system_ro_mounts':sorted(SYSTEM_RO_PATHS),
+            'masked_null_mounts':sorted(observed_null),
+            'scratch':sc['fstype'],
+            'scratch_size_super_opts':sizes[0],
+            'separate_vfs_and_super_opts':True}
 
 def verify_cgroups(text):
     rec={}
@@ -178,7 +275,7 @@ def verify_cgroups(text):
     must(rec['pids.events'].get('max',0)==0,'PID limit event')
     return rec
 
-def verify_canary(output,host_ns,mountinfo):
+def verify_canary(output,host_ns,mountinfo,masked_paths=None):
     rec=network_evidence(output,host_ns)
     must(output.count('SCRATCH_WRITE_PASS:yes')==1,'Scratch write unproven')
     for name in ['etc','runtime','fixtures','dev','dev_shm','proc','sys','root','tmp','var_tmp']:
@@ -189,7 +286,7 @@ def verify_canary(output,host_ns,mountinfo):
     must(output.count('CAP_EFF:0000000000000000')==1,'Effective capabilities not zero')
     must(output.count('FROZEN_PASS:yes')==1,'Security canary did not complete')
     rec['cgroup']=verify_cgroups(output)
-    rec['mounts']=verify_mountinfo(mountinfo)
+    rec['mounts']=verify_mountinfo(mountinfo,masked_paths=masked_paths)
     return rec
 
 def bounded_complete_streams(stdout_path,stderr_path,maximum):

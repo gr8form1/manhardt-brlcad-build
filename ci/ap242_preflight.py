@@ -263,7 +263,8 @@ def main():
                 b=a[1].split('MOUNTINFO_END\n')
                 if len(b)!=2:raise GateError('Incomplete mountinfo section')
                 mountinfo=b[0]
-                rec['normal_evidence']=verify_canary(out_text,rec['host_netns'],mountinfo)
+                rec['normal_evidence']=verify_canary(out_text,rec['host_netns'],mountinfo,
+                     masked_paths=(observed.get('HostConfig') or {}).get('MaskedPaths'))
                 rec['normal_evidence']['effective_cgroup_limits_verified_in_running_payload']=True
                 rec['normal_evidence']['mountinfo_sha256']=hash_bytes(mountinfo.encode())
                 cleanup_one(name,kind)

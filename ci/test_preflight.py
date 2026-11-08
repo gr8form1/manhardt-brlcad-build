@@ -29,6 +29,9 @@ MOUNTS='''1 0 0:1 / / ro,relatime - overlay overlay ro
 7 6 0:7 / /dev/pts rw - devpts devpts rw
 8 1 0:8 / /sys ro - sysfs sysfs ro
 9 1 0:9 / /sys/fs/cgroup ro - cgroup2 cgroup2 ro
+10 1 0:10 / /etc/hosts ro - ext4 /dev/sda rw
+11 1 0:11 / /etc/hostname ro - ext4 /dev/sda rw
+12 1 0:12 / /etc/resolv.conf ro - ext4 /dev/sda rw
 '''
 EVENTS={
  'memory.max':'1073741824','memory.swap.max':'0','pids.max':'32',
@@ -191,11 +194,11 @@ class P2(unittest.TestCase):
         for k,v in [('Image','sha256:wrong'),('Config',dict(valid['Config'],User='0:0'))]:
             c=valid.copy();c[k]=v
             with self.subTest(k=k),self.assertRaises(sec.GateError):sec.verify_container_inspect(c,'/r','/f','sha256:image',ACTUAL_INFO)
-    def test_mountinfo_valid(self):self.assertEqual(sec.verify_mountinfo(MOUNTS)['scratch'],'tmpfs')
+    def test_mountinfo_valid(self):self.assertEqual(sec.verify_mountinfo(P32_MOUNTINFO,masked_paths=P32_MASKED_PATHS)['scratch'],'tmpfs')
     def test_extra_writable_mount_rejected(self):
-        with self.assertRaises(sec.GateError):sec.verify_mountinfo(MOUNTS+'10 1 0:10 / /var/log rw - tmpfs tmpfs rw\n')
+        with self.assertRaises(sec.GateError):sec.verify_mountinfo(P32_MOUNTINFO+'999 411 0:99 / /var/log rw - tmpfs tmpfs rw\n',masked_paths=P32_MASKED_PATHS)
     def test_writable_shm_rejected(self):
-        with self.assertRaises(sec.GateError):sec.verify_mountinfo(MOUNTS+'11 6 0:11 / /dev/shm rw - tmpfs tmpfs rw\n')
+        with self.assertRaises(sec.GateError):sec.verify_mountinfo(P32_MOUNTINFO+'999 414 0:99 / /dev/shm rw - tmpfs tmpfs rw\n',masked_paths=P32_MASKED_PATHS)
     def test_missing_mountinfo_rejected(self):
         with self.assertRaises(sec.GateError):sec.verify_mountinfo('')
     def test_bad_cgroup_fails(self):
@@ -265,5 +268,166 @@ class P2(unittest.TestCase):
         script=(pathlib.Path(__file__).parent/'process_tree_canary.sh').read_text()
         self.assertIn('sleep 180',script)
         self.assertIn('WATCHDOG_UNEXPECTED_COMPLETION',script)
+
+
+# The release's sanitized replay is the full observed native canary stream,
+# except seven documented identity/path redactions. Its SHA-256 is pinned;
+# the original bit-exact stream is in the sealed P3.1 failure evidence archive.
+P32_REPLAY_PATH=SOURCE_DIR/'reference/P31_run42518017322_native_canary_sanitized.txt'
+P32_REPLAY_SHA='399c880381a4fef21107c64d1f6908c17e8d984d225c43ce964623bb7443e332'
+P32_REPLAY=P32_REPLAY_PATH.read_text(encoding='utf-8')
+P32_MOUNTINFO=P32_REPLAY.split('MOUNTINFO_BEGIN\n')[1].split('MOUNTINFO_END\n')[0]
+P32_HOST_NAMESPACE='net:[100]'
+P32_MASKED_PATHS=[
+    '/proc/asound','/proc/acpi','/proc/interrupts','/proc/kcore',
+    '/proc/keys','/proc/latency_stats','/proc/timer_list',
+    '/proc/timer_stats','/proc/sched_debug','/proc/scsi',
+    '/sys/firmware','/sys/devices/virtual/powercap',
+]
+
+
+class P32MountRegression(unittest.TestCase):
+    """Source-only tests: no Docker, network, original raw file or dev tree."""
+
+    def mutate(self,path,change):
+        rows=P32_MOUNTINFO.splitlines()
+        found=[]
+        for i,row in enumerate(rows):
+            left,sep,right=row.partition(' - ')
+            fields=left.split()
+            if sep and len(fields)>=6 and fields[4]==path:
+                found.append((i,fields,right))
+        self.assertEqual(len(found),1,'Malformed test fixture')
+        idx,fields,right=found[0]
+        out=change(fields,right)
+        if out is None:rows.pop(idx)
+        else:rows[idx]=out
+        return '\n'.join(rows)+'\n'
+
+    def reject(self,mountinfo,masked_paths=P32_MASKED_PATHS):
+        with self.assertRaises(sec.GateError):
+            sec.verify_mountinfo(mountinfo,masked_paths=masked_paths)
+
+    def test_p32_reference_identity_and_public_minimization(self):
+        import hashlib
+        self.assertEqual(hashlib.sha256(P32_REPLAY_PATH.read_bytes()).hexdigest(),P32_REPLAY_SHA)
+        for secret in ('/home/runner/','/var/lib/docker/','runnervm','50b8a4290924c32e0c773f8b434c83a9e4aa28d644fed2cf432e31c981d5e3ed'):
+            self.assertNotIn(secret,P32_REPLAY)
+
+    def test_p32_full_native_canary_equivalent_replay(self):
+        result=sec.verify_canary(P32_REPLAY,P32_HOST_NAMESPACE,P32_MOUNTINFO,masked_paths=P32_MASKED_PATHS)
+        self.assertTrue(result['mounts']['root_vfs_ro'])
+        self.assertEqual(len(result['mounts']['masked_null_mounts']),5)
+        self.assertEqual(result['mounts']['scratch_size_super_opts'],'size=65536k')
+        self.assertEqual(result['cgroup']['memory.swap.max'],'0')
+        self.assertEqual(result['cgroup']['memory.swap.current'],'0')
+        self.assertEqual(result['cgroup']['pids.max'],'32')
+        self.assertEqual(result['cgroup']['memory.max'],'1073741824')
+
+    def test_p32_mount_and_super_options_are_separate(self):
+        by={m['point']:m for m in sec.parse_mountinfo(P32_MOUNTINFO)}
+        for p in ('/','/runtime','/fixtures','/etc/hosts','/etc/hostname','/etc/resolv.conf'):
+            self.assertIn('ro',by[p]['mount_opts'])
+            self.assertIn('rw',by[p]['super_opts'])
+            self.assertNotIn('rw',by[p]['mount_opts'])
+        self.assertEqual(by['/scratch']['fstype'],'tmpfs')
+        self.assertTrue({'rw','nosuid','nodev','noexec'}<=by['/scratch']['mount_opts'])
+        self.assertIn('size=65536k',by['/scratch']['super_opts'])
+        for p in sec.MASKED_NULL_PATHS:
+            self.assertEqual(by[p]['root'],'/null')
+            self.assertEqual(by[p]['devno'],by['/dev']['devno'])
+            self.assertEqual(by[p]['parent'],by['/proc']['id'])
+
+    def test_p32_writable_or_missing_required_ro_mounts_reject(self):
+        for p in ('/','/runtime','/fixtures','/etc/hosts','/etc/hostname','/etc/resolv.conf'):
+            with self.subTest(path=p,mutation='writable'):
+                self.reject(self.mutate(p,lambda f,r:' '.join(f[:5]+[f[5].replace('ro,','rw,')])+' - '+r))
+            with self.subTest(path=p,mutation='missing'):
+                self.reject(self.mutate(p,lambda f,r:None))
+
+    def test_p32_scratch_vfs_flags_and_superblock_size_reject(self):
+        cases=[
+            lambda f,r:(' '.join(f[:5]+[f[5].replace('rw,','ro,')])+' - '+r),
+            lambda f,r:(' '.join(f[:5]+[f[5].replace('nosuid,','')])+' - '+r),
+            lambda f,r:(' '.join(f[:5]+[f[5].replace('nodev,','')])+' - '+r),
+            lambda f,r:(' '.join(f[:5]+[f[5].replace('noexec,','')])+' - '+r),
+            lambda f,r:(' '.join(f)+' - '+r.replace('size=65536k','size=65535k')),
+            lambda f,r:(' '.join(f)+' - '+r.replace('size=65536k,','')),
+            lambda f,r:(' '.join(f)+' - '+r.replace('size=65536k,','size=65536k,size=64m,')),
+            lambda f,r:(' '.join(f)+' - '+r.replace('tmpfs tmpfs','ext4 tmpfs')),
+        ]
+        for i,fn in enumerate(cases):
+            with self.subTest(case=i):self.reject(self.mutate('/scratch',fn))
+
+    def test_p321_all_five_masked_mounts_mandatory_positive_evidence(self):
+        # R1 adversarial reproduction: preserve the actual source canary and
+        # the Docker HostConfig.MaskedPaths list; omit all five mount records.
+        rows=P32_MOUNTINFO.splitlines(keepends=True)
+        absent=''.join(row for row in rows
+            if row.partition(' - ')[0].split()[4] not in sec.MASKED_NULL_PATHS)
+        self.assertEqual(len(sec.parse_mountinfo(absent)),21)
+        self.assertFalse(set(m['point'] for m in sec.parse_mountinfo(absent)) &
+                         sec.MASKED_NULL_PATHS)
+        self.reject(absent,masked_paths=P32_MASKED_PATHS)
+        with self.assertRaises(sec.GateError):
+            sec.verify_canary(P32_REPLAY,P32_HOST_NAMESPACE,absent,
+                              masked_paths=P32_MASKED_PATHS)
+        # A complete VFS view cannot pass with missing, empty or malformed
+        # Docker mask metadata, even if the five mounts themselves exist.
+        for bad in (None,[],{},'bad',[p for p in P32_MASKED_PATHS
+                                     if p not in sec.MASKED_NULL_PATHS]):
+            with self.subTest(masked_paths=bad):
+                self.reject(P32_MOUNTINFO,masked_paths=bad)
+        # Preserve the authentic positive control under the exact same gate.
+        self.assertEqual(len(sec.verify_mountinfo(P32_MOUNTINFO,
+                                  masked_paths=P32_MASKED_PATHS)['masked_null_mounts']),5)
+
+    def test_p32_masked_null_path_strict_provenance_reject(self):
+        path='/proc/kcore'
+        cases=[
+            lambda f,r:(' '.join(f[:3]+['/not-null']+f[4:])+' - '+r),
+            lambda f,r:(' '.join(f[:2]+['0:99']+f[3:])+' - '+r),
+            lambda f,r:(' '.join(f[:1]+['999']+f[2:])+' - '+r),
+            lambda f,r:(' '.join(f)+' - '+r.replace('tmpfs tmpfs','tmpfs attacker')),
+            lambda f,r:(' '.join(f)+' - '+r.replace('tmpfs tmpfs','ext4 tmpfs')),
+            lambda f,r:(' '.join(f[:5]+[f[5].replace('rw,','ro,')])+' - '+r),
+            lambda f,r:(' '.join(f[:5]+[f[5].replace('nosuid','suid')])+' - '+r),
+        ]
+        for i,fn in enumerate(cases):
+            with self.subTest(case=i):self.reject(self.mutate(path,fn))
+        self.reject(P32_MOUNTINFO,masked_paths=[])
+        self.reject(P32_MOUNTINFO,masked_paths=[p for p in P32_MASKED_PATHS if p!='/proc/kcore'])
+        self.reject(P32_MOUNTINFO,masked_paths=P32_MASKED_PATHS+[P32_MASKED_PATHS[0]])
+        self.reject(P32_MOUNTINFO,masked_paths='not-a-list')
+        self.reject(self.mutate(path,lambda f,r:None))
+
+    def test_p32_no_generic_writable_proc_or_tmpfs_exemption(self):
+        self.reject(P32_MOUNTINFO+'999 413 0:61 /null /proc/extra rw,nosuid - tmpfs tmpfs rw,size=65536k\n')
+        self.reject(P32_MOUNTINFO+'999 411 0:95 / /var/log rw - tmpfs tmpfs rw\n')
+        self.reject(P32_MOUNTINFO+'999 414 0:91 / /dev/shm rw,nosuid,nodev - tmpfs tmpfs rw\n')
+
+    def test_p32_malformed_duplicate_or_contradictory_mountinfo_reject(self):
+        rows=P32_MOUNTINFO.splitlines()
+        self.reject(P32_MOUNTINFO+rows[0]+'\n')
+        self.reject(P32_MOUNTINFO+'411 999 0:22 / /evil rw - tmpfs tmpfs rw\n')
+        self.reject(self.mutate('/scratch',lambda f,r:' '.join(f[:5]+['rw,ro,'+f[5]])+' - '+r))
+        self.reject(self.mutate('/scratch',lambda f,r:' '.join(f[:5]+['nosuid,nodev,noexec'])+' - '+r))
+        self.reject(self.mutate('/scratch',lambda f,r:' '.join(f)+' - '+r.replace(' rw,',' ro,rw,')))
+        self.reject(self.mutate('/scratch',lambda f,r:' '.join(f)+' - '+r.replace('rw,size','size')))
+        self.reject(self.mutate('/scratch',lambda f,r:' '.join(f)+' '+r))
+        self.reject(self.mutate('/scratch',lambda f,r:' '.join(f)+' - tmpfs tmpfs'))
+        self.reject(self.mutate('/scratch',lambda f,r:' '.join(f[:2]+['bad-device']+f[3:])+' - '+r))
+        self.reject('')
+
+    def test_p32_native_markers_unchanged_security_gate(self):
+        for before,after in [('NETNS_MARKER:net:[200]','NETNS_MARKER:net:[100]'),
+                             ('memory.max:1073741824','memory.max:1073741823'),
+                             ('memory.swap.max:0','memory.swap.max:1'),
+                             ('memory.swap.current:0','memory.swap.current:1'),
+                             ('pids.max:32','pids.max:33'),
+                             ('DENY_RUNTIME:yes','DENY_RUNTIME:no')]:
+            with self.subTest(marker=before),self.assertRaises(sec.GateError):
+                sec.verify_canary(P32_REPLAY.replace(before,after),P32_HOST_NAMESPACE,
+                                   P32_MOUNTINFO,masked_paths=P32_MASKED_PATHS)
 
 if __name__=='__main__':unittest.main(verbosity=2)

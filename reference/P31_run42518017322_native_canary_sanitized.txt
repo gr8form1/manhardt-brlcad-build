@@ -1,0 +1,57 @@
+NETNS_MARKER:net:[200]
+ROUTES_EMPTY:yes
+IPV6_ROUTES_EMPTY:yes
+ONLY_LOOPBACK:yes
+NET_CONNECT_DENIED:yes
+SCRATCH_WRITE_PASS:yes
+DENY_ETC:yes
+DENY_RUNTIME:yes
+DENY_FIXTURES:yes
+DENY_DEV:yes
+DENY_DEV_SHM:yes
+DENY_PROC:yes
+DENY_SYS:yes
+DENY_ROOT:yes
+DENY_TMP:yes
+DENY_VAR_TMP:yes
+UID_GID:65534:65534
+NO_NEW_PRIVS:1
+CAP_EFF:0000000000000000
+memory.max:1073741824
+memory.swap.max:0
+pids.max:32
+memory.current:2707456
+memory.swap.current:0
+pids.current:2
+memory.events:{"low":0,"high":0,"max":0,"oom":0,"oom_kill":0,"oom_group_kill":0,"sock_throttled":0}
+memory.swap.events:{"high":0,"max":0,"fail":0}
+pids.events:{"max":0}
+MOUNTINFO_BEGIN
+411 265 0:51 / / ro,relatime - overlay overlay rw,lowerdir=/REDACTED,upperdir=/REDACTED,workdir=/REDACTED,nouserxattr
+413 411 0:60 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw
+414 411 0:61 / /dev rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+415 414 0:62 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=666
+416 411 0:63 / /sys ro,nosuid,nodev,noexec,relatime - sysfs sysfs ro
+417 416 0:31 / /sys/fs/cgroup ro,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw,nsdelegate,memory_recursiveprot
+418 414 0:58 / /dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw
+419 411 0:64 / /scratch rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=65536k,inode64
+420 411 259:1 /public-fixture/runtime /runtime ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback
+421 411 259:1 /public-fixture/fixtures /fixtures ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback
+422 411 259:1 /public-docker/resolv.conf /etc/resolv.conf ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback
+423 411 259:1 /public-docker/hostname /etc/hostname ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback
+424 411 259:1 /public-docker/hosts /etc/hosts ro,relatime - ext4 /dev/root rw,discard,journal_async_commit,nobarrier,errors=remount-ro,commit=30,data=writeback
+266 413 0:60 /bus /proc/bus ro,nosuid,nodev,noexec,relatime - proc proc rw
+267 413 0:60 /fs /proc/fs ro,nosuid,nodev,noexec,relatime - proc proc rw
+268 413 0:60 /irq /proc/irq ro,nosuid,nodev,noexec,relatime - proc proc rw
+269 413 0:60 /sys /proc/sys ro,nosuid,nodev,noexec,relatime - proc proc rw
+270 413 0:60 /sysrq-trigger /proc/sysrq-trigger ro,nosuid,nodev,noexec,relatime - proc proc rw
+271 413 0:65 / /proc/acpi ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64
+272 413 0:61 /null /proc/interrupts rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+340 413 0:61 /null /proc/kcore rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+341 413 0:61 /null /proc/keys rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+342 413 0:61 /null /proc/latency_stats rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+343 413 0:61 /null /proc/timer_list rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+344 413 0:65 / /proc/scsi ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64
+397 416 0:65 / /sys/firmware ro,relatime - tmpfs tmpfs ro,size=4k,nr_inodes=1,inode64
+MOUNTINFO_END
+FROZEN_PASS:yes

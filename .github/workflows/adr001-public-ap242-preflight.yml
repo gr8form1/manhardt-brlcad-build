@@ -47,7 +47,7 @@ jobs:
           python3 -m py_compile ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py ci/p3_finalize.py
           python3 -m unittest discover -s ci -p test_preflight.py -v 2>&1 | tee out/PRE_ACQUISITION_TESTS.log
           test "${PIPESTATUS[0]}" -eq 0
-          sha256sum ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py ci/p3_finalize.py ci/fixture_canary.sh ci/process_tree_canary.sh .github/workflows/adr001-public-ap242-preflight.yml reference/P2_run42511228612_docker_info.json reference/P2_run42511228612_docker_inspect.json > out/CONTROL_SOURCE_SHA256SUMS.txt
+          sha256sum ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py ci/p3_finalize.py ci/fixture_canary.sh ci/process_tree_canary.sh .github/workflows/adr001-public-ap242-preflight.yml reference/P2_run42511228612_docker_info.json reference/P2_run42511228612_docker_inspect.json reference/P31_run42518017322_native_canary_sanitized.txt > out/CONTROL_SOURCE_SHA256SUMS.txt
       - name: Authenticated artifact acquisition and confined security canaries only
         shell: bash --noprofile --norc -euo pipefail {0}
         env:
