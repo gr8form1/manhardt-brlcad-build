@@ -66,13 +66,21 @@ def needed_from_readelf(text):
 
 
 def ldd_map(text):
+    """Parse resolved ELF providers, including glibc's bare loader line."""
     if 'not found' in text:
         raise ValueError('Unresolved runtime library')
     result = {}
     for line in text.splitlines():
-        if '=>' not in line:
+        line = line.strip()
+        if not line or re.fullmatch(r'linux-vdso\.so\.1 \(0x[0-9a-fA-F]+\)', line):
             continue
-        name, right = line.strip().split('=>', 1)
+        if '=>' not in line:
+            loader = re.fullmatch(r'(/(?:lib64|lib|usr/lib|usr/lib64)/ld-linux-x86-64\.so\.2) \(0x[0-9a-fA-F]+\)', line)
+            if not loader:
+                raise ValueError('Unrecognized bare loader result')
+            result['ld-linux-x86-64.so.2'] = str(Path(loader.group(1)).resolve())
+            continue
+        name, right = line.split('=>', 1)
         resolved = right.strip().split(' (', 1)[0]
         if not resolved.startswith('/'):
             raise ValueError('Unrecognized loader result')
