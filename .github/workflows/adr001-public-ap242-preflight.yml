@@ -1,0 +1,86 @@
+name: ADR-001 AP242e2 P2 - PRE-FLIGHT SECURITY ONLY
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: adr001-public-ap242-preflight
+  cancel-in-progress: false
+jobs:
+  security_preflight:
+    if: >-
+      github.repository == 'gr8form1/manhardt-brlcad-build' &&
+      github.event.repository.private == false &&
+      github.event_name == 'workflow_dispatch' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout reviewed public control SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+      - name: Repository and runner identity guard
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          REPO: ${{ github.repository }}
+          IS_PRIVATE: ${{ github.event.repository.private }}
+          EVENT: ${{ github.event_name }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          test "$REPO" = 'gr8form1/manhardt-brlcad-build'
+          test "$IS_PRIVATE" = false
+          test "$EVENT" = workflow_dispatch
+          test "$ATTEMPT" = 1
+          test "$(uname -m)" = x86_64
+      - name: OFFLINE regression and syntax checks BEFORE artifact acquisition
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          umask 077
+          mkdir -p out
+          python3 -c 'import yaml; assert yaml.__version__'
+          python3 -m py_compile ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py
+          python3 -m unittest discover -s ci -p test_preflight.py -v 2>&1 | tee out/PRE_ACQUISITION_TESTS.log
+          test "${PIPESTATUS[0]}" -eq 0
+          sha256sum ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py ci/fixture_canary.sh ci/process_tree_canary.sh .github/workflows/adr001-public-ap242-preflight.yml > out/CONTROL_SOURCE_SHA256SUMS.txt
+      - name: Authenticated artifact acquisition and confined security canaries only
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+          HOME: ${{ runner.temp }}
+        run: |
+          umask 077
+          timeout --signal=TERM --kill-after=20s 600s python3 ci/ap242_preflight.py --output out
+      - name: Independent best-effort labeled-container cleanup
+        if: ${{ always() }}
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          mkdir -p out
+          if command -v docker >/dev/null 2>&1; then
+            docker ps -aq --no-trunc --filter label=adr001.p2=public-ap242-preflight > out/cleanup_before.txt
+            while IFS= read -r cid; do
+              if [[ -n "$cid" ]]; then docker rm -f "$cid"; fi
+            done < out/cleanup_before.txt
+            docker ps -aq --no-trunc --filter label=adr001.p2=public-ap242-preflight > out/cleanup_after.txt
+            test ! -s out/cleanup_after.txt
+          else
+            printf 'Docker unavailable; cleanup unverified\n' > out/cleanup_failure.txt
+            exit 1
+          fi
+      - name: Archive bounded raw diagnostics including failures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: adr001-public-ap242-p2-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 6
+          retention-days: 1
+# No STEP dispatch, CAD conversion, repair, mesh or acoustic solving is present.
