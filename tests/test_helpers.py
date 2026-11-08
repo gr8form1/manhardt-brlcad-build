@@ -235,4 +235,21 @@ class Helpers(unittest.TestCase):
             self.assertNotIn(forbidden, source)
 
 
+    def test_25_recorded_ap242e2_direct_dependency_coverage(self):
+        # DT_NEEDED names observed in Build #3, readelf command 0065.
+        names = [
+            'libwdb.so.20', 'librt.so.20', 'libbrep.so.20',
+            'libsteputils.so.0', 'libstepeditor.so.0', 'libstepdai.so.0',
+            'libstepcore.so.0', 'libOpenNURBS.so', 'libsteplazyfile.so.0',
+            'libbg.so.20', 'libbn.so.20', 'libbu.so.20',
+            'libstdc++.so.6', 'libm.so.6', 'libgcc_s.so.1',
+            'libc.so.6', 'ld-linux-x86-64.so.2']
+        lines = ['linux-vdso.so.1 (0x111)']
+        lines.extend(f'{name} => /lib/{name} (0x222)' for name in names[:-1])
+        lines.append('/lib64/ld-linux-x86-64.so.2 (0x333)')
+        observed = common.ldd_map('\n'.join(lines))
+        self.assertEqual(len(names), 17)
+        self.assertTrue(all(name in observed for name in names))
+
+
 if __name__ == '__main__': unittest.main(verbosity=2)
