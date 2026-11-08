@@ -252,4 +252,26 @@ class Helpers(unittest.TestCase):
         self.assertTrue(all(name in observed for name in names))
 
 
+    def test_26_cmake_download_has_bounded_transient_retry_and_identity(self):
+        import ast
+        source = (CI / 'build.py').read_text()
+        module = ast.parse(source)
+        calls = [node for node in ast.walk(module) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Attribute) and node.func.attr == 'run'
+                 and node.args and isinstance(node.args[0], ast.List)
+                 and any(isinstance(item, ast.Constant) and item.value == 'curl'
+                         for item in node.args[0].elts)]
+        self.assertEqual(len(calls), 1)
+        args = [item.value for item in calls[0].args[0].elts if isinstance(item, ast.Constant)]
+        for name, value in [('--retry', '3'), ('--retry-delay', '5'),
+                            ('--retry-max-time', '180'), ('--max-time', '600')]:
+            self.assertIn(name, args)
+            self.assertEqual(args[args.index(name) + 1], value)
+        for control in ('--fail', '--location', '--proto', '=https', '--tlsv1.2'):
+            self.assertIn(control, args)
+        self.assertNotIn('--retry-all-errors', args)
+        self.assertIn("archive.stat().st_size == pins['cmake_size_bytes']", source)
+        self.assertIn("sha256(archive) == pins['cmake_sha256']", source)
+
+
 if __name__ == '__main__': unittest.main(verbosity=2)
