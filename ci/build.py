@@ -159,6 +159,7 @@ def main():
         write_json(metadata / 'control-source-inventory.json', controls)
         archive = attempt / 'tools/cmake.tar.gz'
         rec.run(['curl', '--fail', '--location', '--proto', '=https', '--tlsv1.2',
+                 '--retry', '3', '--retry-delay', '5', '--retry-max-time', '180',
                  '--max-time', '600', '--output', archive, pins['cmake_url']])
         require(archive.stat().st_size == pins['cmake_size_bytes']
                 and sha256(archive) == pins['cmake_sha256'], 'CMake archive identity mismatch')
