@@ -227,7 +227,8 @@ def main():
         snapshot(rec, brl, bext, metadata)
         rec.run(['df', '-B1', str(attempt)]);rec.run(['free', '-b'])
         collect_build_evidence(attempt, metadata)
-        from bundle import package_runtime
+        from bundle import package_runtime, preserve_compiled_checkpoint
+        preserve_compiled_checkpoint(rec, out, targets, result['run'])
         bundle = package_runtime(rec, attempt, out, brl, bext, build, ext_build, ext_output, targets, result['run'])
         result.update({'disposition': 'BUILD_PACKAGE_CANDIDATE', 'bundle': bundle,
                        'work_qualification': 'PENDING_INDEPENDENT_ACCEPTANCE',
