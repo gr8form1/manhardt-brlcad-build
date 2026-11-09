@@ -25,6 +25,16 @@ def fixture():
 
 
 class Toolkit(unittest.TestCase):
+    def test_brlcad_source_components_are_a_cmake_list(self):
+        # Regression for Run 42681819721: one colon-joined value omitted all
+        # BRL-CAD libraries and failed CMake export only after bext compiled.
+        self.assertEqual(profile.cmake_source_components_arg(),
+                         '-DBRLCAD_COMPONENTS=conv;gtools')
+        for invalid in ((), ('conv:gtools',), ('conv', 'gtools;bad'),
+                        ('conv', 'conv'), ('gtools/../conv',)):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                profile.cmake_source_components_arg(invalid)
+
     def test_analytic_reference_and_volume(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'fixture.step';p.write_text(fixture())
