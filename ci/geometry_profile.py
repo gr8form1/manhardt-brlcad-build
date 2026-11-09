@@ -5,6 +5,21 @@ EXECUTABLES = ('step-g', 'g-step', 'gsh', 'gqa')
 SCHEMAS = ('ap203', 'ap214', 'ap242e2')
 BUILD_TARGETS = EXECUTABLES + ('ged_subprocesses',)
 
+# BRL-CAD src/CMakeLists.txt consumes a CMake list, not bext's colon profile.
+# Invalid single-string values can silently omit every source component and
+# fail only after the multi-hour bext dependency build.
+SOURCE_COMPONENTS = ('conv', 'gtools')
+
+
+def cmake_source_components_arg(components=SOURCE_COMPONENTS):
+    import re
+    if not components or len(set(components)) != len(components):
+        raise ValueError('Missing or duplicate BRL-CAD source component')
+    if any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]*', name)
+           for name in components):
+        raise ValueError('Each BRL-CAD source component must be a single directory name')
+    return '-DBRLCAD_COMPONENTS=' + ';'.join(components)
+
 
 def runtime_layout(build, targets):
     """Resolve required executables and plugin/subprocess products from CMake."""
