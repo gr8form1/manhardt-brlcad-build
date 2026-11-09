@@ -1,10 +1,10 @@
-name: ADR-001 public BRL-CAD runtime candidate
+name: Manhardt reusable BRL-CAD geometry tools
 'on':
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: adr001-brlcad-manual-build
+  group: manhardt-brlcad-geometry-toolkit-build
   cancel-in-progress: false
 jobs:
   build:
@@ -47,12 +47,12 @@ jobs:
           CMAKE_BUILD_PARALLEL_LEVEL: '1'
           MAKEFLAGS: '-j1'
         shell: bash --noprofile --norc -euo pipefail {0}
-        run: python3 ci/build.py
+        run: python3 ci/build_geometry_tools.py
       - name: Preserve candidate or failure evidence
         if: ${{ always() && steps.checkout.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: adr001-brlcad-${{ github.run_id }}-${{ github.run_attempt }}
+          name: manhardt-geometry-tools-${{ github.run_id }}-${{ github.run_attempt }}
           path: out/
           if-no-files-found: error
           include-hidden-files: false
