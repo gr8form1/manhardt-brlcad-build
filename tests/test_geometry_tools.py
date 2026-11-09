@@ -42,6 +42,18 @@ class Toolkit(unittest.TestCase):
                 with self.subTest(value=value[-90:]), self.assertRaises(RuntimeError):
                     smoke.check_tetrahedron_step(p)
 
+    def test_native_fixture_aabb_checker(self):
+        good = "min {0 0 0} max {10 10 10}"
+        self.assertEqual(smoke.check_tetrahedron_bounds(good),
+                         [0., 0., 0., 10., 10., 10.])
+        with self.assertRaisesRegex(RuntimeError, 'differs'):
+            smoke.check_tetrahedron_bounds("min {0 0 0} max {10.002 10 10}")
+        for malformed in ("no AABB", "min {0 0 0} max {nan 10 10}",
+                          "min {0 0 0} max {foo 10 10}",
+                          "min {0 0} max {10 10 10}"):
+            with self.subTest(malformed=malformed), self.assertRaises(RuntimeError):
+                smoke.check_tetrahedron_bounds(malformed)
+
     def test_packaging_requires_each_tool_and_each_schema(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);targets={}
