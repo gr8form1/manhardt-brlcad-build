@@ -47,7 +47,7 @@ paths. Run the pinned upstream AP242 direct-BREP tetrahedron through:
 
 1. Strict import and real database write; complete 1/1 coverage and no invalid B-rep.
 2. Native `gsh` top-level/object discovery, B-rep validity and solidness.
-3. Native tight bounds, 0–10 mm on each axis within 0.001 mm.
+3. Native geometry-derived axis-aligned bounds for the untrimmed analytic tetrahedron, 0–10 mm on each axis within 0.001 mm. Do not use the approximate ray-sampled `bb -t` path as a micrometre-level fidelity gate.
 4. Strict STEP export with explicit millimetre units and radian angles.
 5. Independent standard-library STEP parsing: one solid, four faces, six edges,
    four correct vertices within 0.00001 mm, and analytic tetrahedron volume
