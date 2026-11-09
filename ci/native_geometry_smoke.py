@@ -49,6 +49,27 @@ def check_tetrahedron_step(path):
             'scope': 'This public four-vertex fixture only; not curved CAD fidelity'}
 
 
+def check_tetrahedron_bounds(output):
+    """Check the geometric AABB of the untrimmed analytic public fixture.
+
+    Do not use bb -t for a 0.001-mm acceptance gate: -t is ray-sampled and
+    approximate, so sampling resolution is not a geometry-fidelity bound.
+    """
+    match = re.search(r'min\s*\{([^{}]+)\}\s*max\s*\{([^{}]+)\}', output)
+    if not match:
+        raise RuntimeError('Native geometric AABB was not reported')
+    try:
+        coordinates = [float(v) for part in match.groups() for v in part.split()]
+    except ValueError as exc:
+        raise RuntimeError('Native geometric AABB contains a nonnumeric value') from exc
+    if len(coordinates) != 6 or any(
+        not math.isfinite(value) or abs(value - expected) > 1e-3
+        for value, expected in zip(coordinates, (0., 0., 0., 10., 10., 10.))
+    ):
+        raise RuntimeError('Native geometric AABB differs from the public tetrahedron')
+    return coordinates
+
+
 def run_smoke(rec, runtime, brl_source, destination):
     runtime, brl_source, destination = map(Path, (runtime, brl_source, destination))
     destination.mkdir(parents=True, exist_ok=False)
@@ -92,14 +113,10 @@ def run_smoke(rec, runtime, brl_source, destination):
     solidity=run([runtime/'bin/gsh',database,'brep',primitives[0],'solid'])
     if 'brep is solid' not in solidity or 'NOT solid' in solidity:
         raise RuntimeError('Native B-rep readback did not confirm solidness')
-    bounds = run([runtime/'bin/gsh', database, 'bb', '-t', '-e', '-q'] + tops)
-    match = re.search(r'min\s*\{([^{}]+)\}\s*max\s*\{([^{}]+)\}', bounds)
-    if not match:
-        raise RuntimeError('Native tight bounds were not reported')
-    coordinates = [float(v) for part in match.groups() for v in part.split()]
-    if len(coordinates) != 6 or any(not math.isfinite(v) or abs(v-e)>1e-3
-            for v,e in zip(coordinates, (0,0,0,10,10,10))):
-        raise RuntimeError('Native tight bounds differ from the 10-mm tetrahedron')
+    # bb -t uses approximate ray sampling; here the analytic untrimmed fixture
+    # supports an ordinary geometry-derived AABB acceptance check instead.
+    bounds = run([runtime/'bin/gsh', database, 'bb', '-q', '-e'] + tops)
+    coordinates = check_tetrahedron_bounds(bounds)
     if sha256(database) != original_db_hash:
         raise RuntimeError('Database inspection changed the input database bytes')
     exported = destination / 'roundtrip.step'
@@ -116,7 +133,7 @@ def run_smoke(rec, runtime, brl_source, destination):
         raise RuntimeError('Exported tetrahedron did not reimport completely')
     result = {'status': 'PUBLIC_TETRAHEDRON_IO_PASS', 'source_template_sha256': sha256(template),
               'input_sha256': sha256(step), 'database_sha256': original_db_hash,
-              'export_sha256': sha256(exported), 'native_tight_bounds_mm': coordinates,
+              'export_sha256': sha256(exported), 'native_geometry_aabb_mm': coordinates,
               'native_brep_object':primitives[0], 'native_brep_valid_and_solid':True,
               'independent_export_check': independent,
               'nonclaims': ['SPK16 geometry fidelity', 'unchanged-source validity',
