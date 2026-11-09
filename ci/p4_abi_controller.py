@@ -6,7 +6,7 @@ loader --list resolves a binary's shared-library closure without transferring
 control to its entry point. Loading a DSO for dependency listing is NOT native
 AP242e2 plugin dispatch. Any ambiguity is a HOLD.
 """
-import argparse, base64, hashlib, io, json, os, pathlib, posixpath, re, shutil, sys, time, zipfile
+import argparse, base64, hashlib, io, json, os, pathlib, posixpath, re, shutil, stat, sys, time, zipfile
 from ap242_preflight import (REPO,ARTIFACT_ID,ZIP_SHA,TAR_SHA,IMAGE,MEM,PID_MAX,FIXTURES,
    build_artifact_download,bounded_http,hash_bytes,hash_file,safe_extract_runtime,
    command,require_success,stdout_text,docker_json,write_json)
@@ -33,6 +33,10 @@ EXPECTED_IMAGE_ID='sha256:35a88802559dd2077e584394471ddaa1a2c5bfd16893b829ea5761
 ABI_SHELL = '''
 set -eu
 printf 'P4_ABI_BEGIN\\n'
+# Nonexecuting UID=65534 read gates before any loader qualification.
+for public_file in /runtime/bin/step-g /runtime/libexec/step/libstep-schema-ap242e2.so /fixtures/base_attachment.step /fixtures/M015.stp; do
+  test -r "$public_file" || exit 83
+done
 test -r /lib64/ld-linux-x86-64.so.2
 test "$(sha256sum /runtime/bin/step-g | cut -d' ' -f1)" = '5cb3c20ac53827be697e1dcd6fe153586a9b13bab537166f9e27e8ead5f01e73'
 test "$(sha256sum /runtime/libexec/step/libstep-schema-ap242e2.so | cut -d' ' -f1)" = '0580fe3e551387a21fca7661c4b369ff8a07292b8daaba789ce4171442367bfa'
@@ -578,6 +582,117 @@ def seal_controller_evidence(out, rec, scratch, remover=None):
     (out/'SHA256SUMS.txt').write_text(''.join(rawlist))
     return controller_exit_code(rec)
 
+def _public_tree_manifest(root, expected, executable=()):
+    """Fail-closed public bind mount preparation; never touch private scratch.
+
+    expected is authenticated SHA-256 data, not inferred from a directory walk.
+    Directory mode 0755 and regular-file mode 0644/0755 establish safe
+    traverse/read access for UID/GID 65534 independent of host ownership.
+    This proves host bind-source mode bits, not future container mount success.
+    """
+    root = pathlib.Path(root)
+    if not root.is_absolute() or root.is_symlink() or not root.is_dir():
+        raise GateError('Public bind root absent, relative or symlink')
+    if not isinstance(expected, dict) or not expected or len(expected) > 2600:
+        raise GateError('Public bind expected-file inventory invalid')
+    executable = set(executable)
+    if not executable.issubset(expected):
+        raise GateError('Uninventoried executable public file')
+    dirs = {''}
+    for name, digest in expected.items():
+        if (not isinstance(name, str) or len(name) > 240 or
+            not all(32 <= ord(ch) <= 126 and ch != chr(92) for ch in name) or
+            any(p in ('', '.', '..') for p in name.split('/')) or
+            not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)):
+            raise GateError('Invalid public bind file path/digest')
+        parts = name.split('/')
+        dirs.update('/'.join(parts[:i]) for i in range(1, len(parts)))
+    observed_dirs = set()
+    observed_files = set()
+    def walk_error(exc):
+        raise GateError('Public bind tree traversal failed') from exc
+    for parent, childdirs, files in os.walk(root, topdown=True, followlinks=False,
+                                           onerror=walk_error):
+        directory = pathlib.Path(parent)
+        relative = directory.relative_to(root).as_posix()
+        relative = '' if relative == '.' else relative
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or directory.is_symlink():
+            raise GateError('Non-directory or symlink in public bind tree')
+        observed_dirs.add(relative)
+        for name in childdirs:
+            child = directory/name
+            if not stat.S_ISDIR(child.lstat().st_mode) or child.is_symlink():
+                raise GateError('Unexpected symlink/non-directory public bind path')
+        for name in files:
+            file = directory/name
+            rel = file.relative_to(root).as_posix()
+            if not stat.S_ISREG(file.lstat().st_mode) or file.is_symlink():
+                raise GateError('Unexpected symlink/nonregular public bind file')
+            observed_files.add(rel)
+    if observed_dirs != dirs or observed_files != set(expected):
+        raise GateError('Unexpected/missing public bind files or directories')
+    # Authenticate before changing metadata; never silently repair bytes.
+    for name, digest in expected.items():
+        if hash_file(root/name) != digest:
+            raise GateError('Public bind bytes failed pre-permission authentication: '+name)
+    try:
+        for name in sorted(dirs, key=lambda x: x.count('/'), reverse=True):
+            (root/name).chmod(0o755)
+        for name in sorted(expected):
+            (root/name).chmod(0o755 if name in executable else 0o644)
+    except OSError as exc:
+        raise GateError('Public bind permission setting failed') from exc
+    # Exact modes are also a conservative UID=65534 read/traversal proof:
+    # every owner/group/other class has the needed bits; no write for others.
+    for name in dirs:
+        entry = root/name
+        info = entry.lstat()
+        if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o755:
+            raise GateError('Public bind directory mode mismatch: '+name)
+    for name, digest in expected.items():
+        entry = root/name
+        info = entry.lstat()
+        required = 0o755 if name in executable else 0o644
+        if (not stat.S_ISREG(info.st_mode) or
+            stat.S_IMODE(info.st_mode) != required or hash_file(entry) != digest):
+            raise GateError('Public bind file mode or post-permission SHA mismatch: '+name)
+    records = ''.join(name+' '+expected[name]+'\n' for name in sorted(expected))
+    return {'directory_count':len(dirs), 'file_count':len(expected),
+            'directories_mode':'0755', 'nonexecutables_mode':'0644',
+            'explicit_executable_mode':'0755', 'uid_gid':'65534:65534',
+            'uid_65534_read_traversal':'PASS_STATIC_MODE_BITS_ONLY',
+            'exact_file_sha256_inventory_sha256':hashlib.sha256(records.encode()).hexdigest(),
+            'symlink_count':0, 'bytes_unchanged':True,
+            'container_access_and_ABI':'NOT_TESTED'}
+
+
+def _authenticated_runtime_public_files(root, extracted):
+    """Rebuild the already-attested 2410-file inventory, without new trust pins."""
+    root = pathlib.Path(root)
+    obj = json.loads((root/'MANIFEST.json').read_text())
+    entries = obj.get('files') if isinstance(obj, dict) else None
+    if not isinstance(entries, list) or len(entries) != 2408:
+        raise GateError('Authenticated runtime manifest census invalid')
+    file_map = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise GateError('Runtime manifest entry malformed')
+        name, digest = entry.get('path'), entry.get('sha256')
+        if not isinstance(name, str) or name in file_map:
+            raise GateError('Runtime manifest duplicate/invalid path')
+        file_map[name] = digest
+    if 'MANIFEST.json' in file_map or 'SHA256SUMS' in file_map:
+        raise GateError('Runtime manifest overlaps metadata files')
+    if hash_file(root/'MANIFEST.json') != extracted['manifest_sha256']:
+        raise GateError('Runtime manifest identity lost after safe extraction')
+    file_map['MANIFEST.json'] = extracted['manifest_sha256']
+    file_map['SHA256SUMS'] = hash_file(root/'SHA256SUMS')
+    if len(file_map) != extracted['files_extracted'] or len(file_map) != 2410:
+        raise GateError('Runtime files differ from authenticated extraction')
+    return file_map
+
+
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--output',required=True)
     args=ap.parse_args()
@@ -618,6 +733,10 @@ def main():
         rec['runtime_manifest']=safe_extract_runtime(archive,runtime)
         if rec['runtime_manifest']['step_g_sha256']!=BINARY_SHA or rec['runtime_manifest']['plugin_sha256']!=PLUGIN_SHA:
             raise GateError('Original Build #5 binary SHA mismatch')
+        # Normalize only the authenticated disposable bind source, not scratch.
+        rec['runtime_public_permissions'] = _public_tree_manifest(
+            runtime, _authenticated_runtime_public_files(runtime, rec['runtime_manifest']),
+            executable=('bin/step-g',))
         fixtures=scratch/'fixtures';fixtures.mkdir()
         rec['fixtures']=[]
         for fn,owner,repo,blob,digest in FIXTURES:
@@ -630,6 +749,8 @@ def main():
                 raise GateError('Public fixture identity mismatch '+fn)
             (fixtures/fn).write_bytes(data)
             rec['fixtures'].append({'name':fn,'git_blob':blob,'sha256':digest})
+        rec['fixtures_public_permissions'] = _public_tree_manifest(
+            fixtures, {item['name']:item['sha256'] for item in rec['fixtures']})
         info=json.loads(contents('docker_info',['docker','info','--format','{{json .}}']))
         rec['docker_cgroup_version']=verify_docker_cgroup_v2(info)
         rec['docker_version']=contents('docker_version',['docker','version','--format','{{.Server.Version}}']).strip()

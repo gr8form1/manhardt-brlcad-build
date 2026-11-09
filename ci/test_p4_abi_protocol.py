@@ -906,4 +906,169 @@ class P434CanaryAbiIntegration(unittest.TestCase):
         with mock.patch.object(p,'hash_file',return_value='0'*64):
             with self.assertRaises(p.GateError):self.verify()
 
+
+class P435PublicRuntimeReadPermissions(unittest.TestCase):
+    """P4.3.5: POSIX permissions only; never run Build #5 or BRL-CAD."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='adr001-p435-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name)
+        self.scratch = self.root/'private_scratch'
+        self.scratch.mkdir(mode=0o700)
+        self.runtime = self.scratch/'runtime'
+        self.fixtures = self.scratch/'fixtures'
+        previous = os.umask(0o077)
+        try:
+            self.runtime.mkdir()
+            (self.runtime/'bin').mkdir()
+            (self.runtime/'libexec').mkdir()
+            (self.runtime/'libexec/step').mkdir()
+            (self.runtime/'bin/step-g').write_bytes(b'synthetic step-g DATA, never executed')
+            (self.runtime/'libexec/step/libstep-schema-ap242e2.so').write_bytes(b'synthetic plugin bytes')
+            (self.runtime/'share').mkdir()
+            (self.runtime/'share/frozen.txt').write_bytes(b'untouched public bytes')
+            self.fixtures.mkdir()
+            for fn in ('base_attachment.step','M015.stp'):
+                (self.fixtures/fn).write_bytes(b'ISO-10303-21; synthetic fixture')
+        finally:
+            os.umask(previous)
+        self.runtime_files = {
+            file.relative_to(self.runtime).as_posix():sha(file)
+            for file in self.runtime.rglob('*') if file.is_file()}
+        self.fixture_files = {
+            file.name:sha(file) for file in self.fixtures.iterdir()}
+
+    def prepare(self):
+        runtime = p._public_tree_manifest(self.runtime,self.runtime_files,('bin/step-g',))
+        fixtures = p._public_tree_manifest(self.fixtures,self.fixture_files)
+        return runtime,fixtures
+
+    def test_umask_077_reproduces_inaccessible_original_directories(self):
+        self.assertEqual(self.runtime.stat().st_mode & 0o777,0o700)
+        self.assertEqual((self.runtime/'bin').stat().st_mode & 0o777,0o700)
+        self.assertEqual(self.fixtures.stat().st_mode & 0o777,0o700)
+        self.assertFalse(bool(self.runtime.stat().st_mode & 0o005))
+        self.assertEqual(self.scratch.stat().st_mode & 0o777,0o700)
+
+    def test_all_runtime_and_fixture_dirs_uid65534_traversable_and_files_readable(self):
+        rt,fx=self.prepare()
+        self.assertEqual(rt['uid_65534_read_traversal'],'PASS_STATIC_MODE_BITS_ONLY')
+        self.assertEqual(fx['uid_65534_read_traversal'],'PASS_STATIC_MODE_BITS_ONLY')
+        for root in (self.runtime,self.fixtures):
+            for node in [root,*root.rglob('*')]:
+                mode=node.lstat().st_mode & 0o777
+                if node.is_dir():
+                    self.assertEqual(mode,0o755)
+                    self.assertTrue(mode & 0o001)
+                else:
+                    self.assertIn(mode,(0o644,0o755))
+                    self.assertTrue(mode & 0o004)
+        self.assertEqual(self.scratch.stat().st_mode & 0o777,0o700)
+        self.assertTrue(rt['bytes_unchanged'] and fx['bytes_unchanged'])
+        self.assertEqual(rt['container_access_and_ABI'],'NOT_TESTED')
+
+    def test_positive_uid65534_actual_nonexecuting_open_when_root(self):
+        # The temporary container test root is public only for this optional
+        # host-mode probe; the production scratch parent stays mode 0700.
+        self.prepare()
+        if os.geteuid() != 0:
+            self.assertEqual(self.runtime.stat().st_mode & 0o777,0o755)
+            return
+        self.root.chmod(0o755)
+        self.scratch.chmod(0o755)
+        try:
+            def drop_to_nobody():
+                os.setgroups([])
+                os.setgid(65534)
+                os.setuid(65534)
+            source = ('import os, pathlib; '
+                      'a=pathlib.Path(os.environ["TARGET_A"]); '
+                      'b=pathlib.Path(os.environ["TARGET_B"]); '
+                      'assert os.getuid()==65534 and os.getgid()==65534; '
+                      'assert a.open("rb").read(9)==b"synthetic"; '
+                      'assert b.open("rb").read(9)==b"ISO-10303"')
+            env=dict(os.environ, TARGET_A=str(self.runtime/'bin/step-g'),
+                     TARGET_B=str(self.fixtures/'M015.stp'))
+            proc=subprocess.run([sys.executable,'-I','-B','-c',source],
+                                env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                                preexec_fn=drop_to_nobody,timeout=8)
+            self.assertEqual(proc.returncode,0,proc.stderr.decode())
+        finally:
+            self.scratch.chmod(0o700)
+            self.root.chmod(0o700)
+        self.assertEqual(self.scratch.stat().st_mode & 0o777,0o700)
+
+    def test_unexpected_symlink_directory_is_fail_closed(self):
+        self.runtime.joinpath('libexec/step').rename(self.runtime/'libexec/step.real')
+        (self.runtime/'libexec/step').symlink_to('step.real',target_is_directory=True)
+        with self.assertRaises(p.GateError):
+            p._public_tree_manifest(self.runtime,self.runtime_files,('bin/step-g',))
+
+    def test_unexpected_symlink_file_is_fail_closed(self):
+        original=self.fixtures/'M015.stp'
+        original.rename(self.fixtures/'M015.stp.backup')
+        original.symlink_to('M015.stp.backup')
+        with self.assertRaises(p.GateError):p._public_tree_manifest(self.fixtures,self.fixture_files)
+
+    def test_uninventoried_or_missing_file_is_fail_closed(self):
+        (self.fixtures/'extra.step').write_bytes(b'unexpected')
+        with self.assertRaises(p.GateError):p._public_tree_manifest(self.fixtures,self.fixture_files)
+        (self.fixtures/'extra.step').unlink()
+        (self.fixtures/'M015.stp').unlink()
+        with self.assertRaises(p.GateError):p._public_tree_manifest(self.fixtures,self.fixture_files)
+
+    def test_unexpected_directory_is_fail_closed(self):
+        (self.runtime/'extra').mkdir()
+        with self.assertRaises(p.GateError):
+            p._public_tree_manifest(self.runtime,self.runtime_files,('bin/step-g',))
+
+    def test_invalid_manifest_relative_paths_fail_closed(self):
+        digest=next(iter(self.fixture_files.values()))
+        for bad in ('../escape','/absolute','two//slashes','./x','x/../y','x\\y','x\ny',''):
+            with self.subTest(bad=bad),self.assertRaises(p.GateError):
+                p._public_tree_manifest(self.fixtures,{bad:digest})
+
+    def test_incorrect_digest_is_fail_closed_before_permission_change(self):
+        with self.assertRaises(p.GateError):
+            p._public_tree_manifest(self.fixtures,{**self.fixture_files,'M015.stp':'0'*64})
+        self.assertEqual(self.fixtures.stat().st_mode & 0o777,0o700)
+
+    def test_chmod_error_is_fail_closed(self):
+        original=pathlib.Path.chmod
+        def failed(node,mode,*args,**kwargs):
+            if node==self.fixtures:raise PermissionError('injected chmod failure')
+            return original(node,mode,*args,**kwargs)
+        with mock.patch.object(pathlib.Path,'chmod',autospec=True,side_effect=failed):
+            with self.assertRaises(p.GateError):p._public_tree_manifest(self.fixtures,self.fixture_files)
+
+    def test_silent_chmod_noop_yields_mode_mismatch_hold(self):
+        with mock.patch.object(pathlib.Path,'chmod',return_value=None):
+            with self.assertRaises(p.GateError):p._public_tree_manifest(self.fixtures,self.fixture_files)
+
+    def test_post_chmod_binary_mutation_is_fail_closed(self):
+        target=self.runtime/'bin/step-g'
+        original=pathlib.Path.chmod
+        def corrupt(node,mode,*args,**kwargs):
+            result=original(node,mode,*args,**kwargs)
+            if node==target:target.write_bytes(b'corrupted synthetic bytes')
+            return result
+        with mock.patch.object(pathlib.Path,'chmod',autospec=True,side_effect=corrupt):
+            with self.assertRaises(p.GateError):
+                p._public_tree_manifest(self.runtime,self.runtime_files,('bin/step-g',))
+
+    def test_read_gate_in_unchanged_unprivileged_ABI_shell_before_hash_and_loader(self):
+        s=p.ABI_SHELL
+        self.assertIn('/fixtures/base_attachment.step',s)
+        self.assertIn('/fixtures/M015.stp',s)
+        self.assertIn('test -r "$public_file" || exit 83',s)
+        self.assertLess(s.index('test -r "$public_file"'),s.index('sha256sum /runtime/bin/step-g'))
+        self.assertLess(s.index('test -r "$public_file"'),s.index('LD_DEBUG=libs,versions'))
+        self.assertNotIn('step-g --schema',s)
+        self.assertNotIn(' --user 0',s)
+
+    def test_exact_frozen_security_sources_remain_preserved(self):
+        self.assertEqual(len(p.verify_control_source(R)),10)
+        self.assertEqual(p.CONTROL_COMMIT,'e25c46a1967fbca64948449d3fe027b657472f15')
+
 if __name__=='__main__':unittest.main()
