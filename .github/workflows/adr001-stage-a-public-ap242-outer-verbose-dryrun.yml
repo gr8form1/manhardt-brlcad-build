@@ -1,0 +1,223 @@
+name: ADR-001 Stage A - public outer-bound verbose solidness diagnostic (MANUAL ONLY)
+'on':
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type PUBLIC_AP242_OUTER_VERBOSE_STAGE_A_ONE_SHOT only after separate founder launch authorization'
+        required: true
+        type: string
+        default: NO_EXECUTION
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: adr001-stage-a-public-ap242-outer-verbose-manual
+  cancel-in-progress: false
+jobs:
+  public_step_stage_a:
+    if: >-
+      github.repository == 'gr8form1/manhardt-brlcad-build' &&
+      github.event.repository.private == false &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      inputs.confirmation == 'PUBLIC_AP242_OUTER_VERBOSE_STAGE_A_ONE_SHOT'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact manual-dispatch commit (no persistent credentials)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+
+      - name: Verify one-shot authorization context and accepted public source identities
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          APPROVED_SCRIPT_SHA: 'd94d8e486bc7129f755f86ea7671dad51fcc487f23b4488b1003582d0abcb47a'
+          APPROVED_P435_SHA: 'dc2421bc8e50b02cbe5ab8f081d625688cb17a9fb844fe5e78f5a6ac7bfe8d62'
+        run: |
+          umask 077
+          mkdir -p out
+          test "$GITHUB_REPOSITORY" = 'gr8form1/manhardt-brlcad-build'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -m)" = 'x86_64'
+          test -n "${RUNNER_TEMP:?}"
+          command -v docker
+          command -v timeout
+          test -f stage_a/stage_a_public_ap242_outer_verbose_dryrun.py
+          test ! -L stage_a/stage_a_public_ap242_outer_verbose_dryrun.py
+          test "$(sha256sum stage_a/stage_a_public_ap242_outer_verbose_dryrun.py | cut -d' ' -f1)" = "$APPROVED_SCRIPT_SHA"
+          test -f stage_a/fixtures/adr001_public_ap242_planar_box_explicit_outer.step
+          test ! -L stage_a/fixtures/adr001_public_ap242_planar_box_explicit_outer.step
+          test "$(stat -c %s stage_a/fixtures/adr001_public_ap242_planar_box_explicit_outer.step)" = '15487'
+          test "$(sha256sum stage_a/fixtures/adr001_public_ap242_planar_box_explicit_outer.step | cut -d' ' -f1)" = '6e1133bb17c870ac04e677b52722c6115e52ca8685fcd628f58d8cb686306828'
+          test "$(stat -c %s stage_a/P435_approved_source_package.zip)" = '78029'
+          test "$(sha256sum stage_a/P435_approved_source_package.zip | cut -d' ' -f1)" = "$APPROVED_P435_SHA"
+          printf 'reviewed_script_sha256=%s\nreviewed_p435_package_sha256=%s\ncheckout_commit=%s\n' \
+            "$APPROVED_SCRIPT_SHA" "$APPROVED_P435_SHA" "$GITHUB_SHA" \
+            > out/PRE_ACQUISITION_IDENTITIES.txt
+
+      - name: Prepare exact frozen P4.3.5 source from independently accepted ZIP (NO Docker)
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          umask 077
+          python3 -I -B - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import hashlib, io, json, os, stat, zipfile
+
+          def sha(b): return hashlib.sha256(b).hexdigest()
+          package = Path('stage_a/P435_approved_source_package.zip')
+          data = package.read_bytes()
+          assert len(data) == 78029
+          assert sha(data) == 'dc2421bc8e50b02cbe5ab8f081d625688cb17a9fb844fe5e78f5a6ac7bfe8d62'
+          with zipfile.ZipFile(io.BytesIO(data)) as z:
+              names = z.namelist()
+              assert len(names) == len(set(names)) == 13
+              assert z.testzip() is None
+              checks = {}
+              for line in z.read('SHA256SUMS.txt').decode('utf-8').splitlines():
+                  digest, delim, name = line.partition('  ')
+                  assert delim == '  ' and len(digest) == 64 and name not in checks
+                  checks[name] = digest
+              assert len(checks) == 12 and set(checks) == set(names) - {'SHA256SUMS.txt'}
+              assert all(sha(z.read(name)) == digest for name, digest in checks.items())
+              inv = z.read('PUBLICATION/P435_EXACT_PROPOSED_PUBLICATION_INVENTORY.json')
+              srczip = z.read('PUBLICATION/P435_PROPOSED_SOURCE_ONLY_14_FILES.zip')
+          assert sha(inv) == '9320bf0eef074584460f901e0cc2d76dfe956a7874ad27929c8ebb0f3c33488c'
+          assert sha(srczip) == '7a147e44297732026627f9e5213c476398b433a37344f80ef87ef487db34859a'
+          inventory = json.loads(inv)
+          entries = inventory['entries']
+          paths = [x['path'] for x in entries]
+          assert len(paths) == len(set(paths)) == 14
+          target = Path(os.environ['RUNNER_TEMP'])/'adr001-stage-a-p435-source'
+          assert not os.path.lexists(target)
+          target.mkdir(mode=0o700)
+          with zipfile.ZipFile(io.BytesIO(srczip)) as z:
+              names = z.namelist()
+              assert len(names) == len(set(names)) == 14 and set(names) == set(paths)
+              assert z.testzip() is None
+              for entry in entries:
+                  rel = PurePosixPath(entry['path'])
+                  assert not rel.is_absolute() and '..' not in rel.parts and rel.as_posix() == entry['path']
+                  member = z.getinfo(entry['path'])
+                  assert not stat.S_ISLNK(member.external_attr >> 16)
+                  content = z.read(entry['path'])
+                  assert len(content) == entry['bytes'] and sha(content) == entry['sha256']
+                  git_blob = hashlib.sha1(b'blob '+str(len(content)).encode()+b'\0'+content).hexdigest()
+                  assert git_blob == entry['git_blob_sha1']
+                  path = target.joinpath(*rel.parts)
+                  path.parent.mkdir(parents=True,exist_ok=True)
+                  path.write_bytes(content)
+          control = Path('stage_a/P435_EXACT_PROPOSED_PUBLICATION_INVENTORY.json')
+          assert not os.path.lexists(control)
+          control.write_bytes(inv)
+          with open('out/SOURCE_PREPARATION_RECEIPT.json','w') as f:
+              json.dump({'source_package_sha256':sha(data),'nested_source_sha256':sha(srczip),
+                         'inventory_sha256':sha(inv),'verified_files':14,'source_root':str(target)},f,indent=2)
+          PY
+
+      - name: One isolated public STEP dry-run only — rc=2 means review required, NOT PASS
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          umask 077
+          P435_SRC="${RUNNER_TEMP:?}/adr001-stage-a-p435-source"
+          STAGE_A_SCRIPT='stage_a/stage_a_public_ap242_outer_verbose_dryrun.py'
+          STAGE_A_EVIDENCE="$GITHUB_WORKSPACE/out/stage-a-evidence"
+          test -f "$STAGE_A_SCRIPT" && test ! -L "$STAGE_A_SCRIPT"
+          test "$(sha256sum "$STAGE_A_SCRIPT" | cut -d' ' -f1)" = 'd94d8e486bc7129f755f86ea7671dad51fcc487f23b4488b1003582d0abcb47a'
+          test -f stage_a/P435_EXACT_PROPOSED_PUBLICATION_INVENTORY.json
+          test ! -L stage_a/P435_EXACT_PROPOSED_PUBLICATION_INVENTORY.json
+          test "$(sha256sum stage_a/P435_EXACT_PROPOSED_PUBLICATION_INVENTORY.json | cut -d' ' -f1)" = '9320bf0eef074584460f901e0cc2d76dfe956a7874ad27929c8ebb0f3c33488c'
+          test ! -e "$STAGE_A_EVIDENCE"
+          existing_ids=$(docker ps -aq --filter label=adr001.stage=public-step-dryrun) || exit 1
+          test -z "$existing_ids" || { echo 'Stage A container already exists' >&2; exit 1; }
+          HOST_RUNNER_TEMP=${RUNNER_TEMP:?}
+          GUARD_TEMP=$(mktemp -d "${HOST_RUNNER_TEMP}/adr001-stage-a-guard.XXXXXXXX")
+          chmod 0700 "$GUARD_TEMP"
+          cleanup_outer() {
+            rc=$?
+            trap - EXIT
+            set +e
+            ids=$(docker ps -aq --filter label=adr001.stage=public-step-dryrun) || rc=1
+            for id in $ids; do docker rm -f "$id" || rc=1; done
+            remaining=$(docker ps -aq --filter label=adr001.stage=public-step-dryrun) || rc=1
+            test -z "$remaining" || rc=1
+            rm -rf -- "$GUARD_TEMP" || rc=1
+            test ! -e "$GUARD_TEMP" || rc=1
+            exit "$rc"
+          }
+          trap cleanup_outer EXIT
+          trap 'exit 143' TERM
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          # A stricter 520-second bound preserves time for independent always-run cleanup
+          # and evidence upload inside the 600-second GitHub runner watchdog.
+          RUNNER_TEMP="$GUARD_TEMP" PYTHONDONTWRITEBYTECODE=1 \
+            timeout -s TERM -k 10s 520s python3 -I -B "$STAGE_A_SCRIPT" \
+            --source-root "$P435_SRC" --evidence-dir "$STAGE_A_EVIDENCE" \
+            --acquisition github
+
+      - name: Independent always-run forced container cleanup (even after controller failure)
+        if: ${{ always() }}
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          umask 077
+          mkdir -p out
+          rc=0
+          if ! command -v docker >/dev/null 2>&1; then
+            printf 'HOLD: Docker unavailable; cleanup cannot be verified\n' > out/STAGE_A_ALWAYS_CLEANUP.txt
+            exit 1
+          fi
+          ids=$(docker ps -aq --filter label=adr001.stage=public-step-dryrun) || rc=1
+          printf 'Initial Stage A container IDs: %s\n' "$ids" > out/STAGE_A_ALWAYS_CLEANUP.txt
+          for id in $ids; do
+            docker rm -f "$id" >> out/STAGE_A_ALWAYS_CLEANUP.txt 2>&1 || rc=1
+          done
+          remaining=$(docker ps -aq --filter label=adr001.stage=public-step-dryrun) || rc=1
+          printf 'Remaining Stage A IDs: %s\nCleanup rc: %s\n' "$remaining" "$rc" >> out/STAGE_A_ALWAYS_CLEANUP.txt
+          test -z "$remaining" || rc=1
+          exit "$rc"
+
+      - name: Seal post-cleanup evidence, whether accepted capture or HOLD
+        if: ${{ always() }}
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          umask 077
+          mkdir -p out
+          python3 -I -B - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root = Path('out')
+          sums=[]
+          for path in sorted(root.rglob('*')):
+              if path.is_symlink():
+                  raise SystemExit('HOLD: evidence symlink')
+              if path.is_file() and path.name != 'POST_CLEANUP_SHA256SUMS.txt':
+                  h=hashlib.sha256(path.read_bytes()).hexdigest()
+                  sums.append(f'{h}  {path.relative_to(root).as_posix()}\n')
+          (root/'POST_CLEANUP_SHA256SUMS.txt').write_text(''.join(sums))
+          PY
+
+      - name: Archive original raw evidence and cleanup receipts for independent review
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: adr001-stage-a-public-ap242-outer-verbose-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 6
+          retention-days: 1
+# No automatic trigger, retry, fallback, private geometry, -o, persisted .g, or Stage B.
+# Main Stage A Python returns rc=2 for a fully captured run: independent review required.
