@@ -12,7 +12,7 @@ import time
 import traceback
 
 from common import Recorder, clean_environment, sha256, write_json
-from geometry_profile import BUILD_TARGETS, EXECUTABLES, SCHEMAS
+from geometry_profile import BUILD_TARGETS, EXECUTABLES, SCHEMAS, cmake_source_components_arg
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = 'conv:libtclcad:libged:libgcv:libdm:libicv:libanalyze:libwdb:liboptical:librt:libbrep:libnmg:libbv:libbg:libbn:libbu:libpkg'
@@ -201,7 +201,7 @@ def main():
         rec.run([cmake, '-S', brl, '-B', build, '-G', 'Unix Makefiles',
                  '-DCMAKE_BUILD_TYPE=Release', f'-DCMAKE_INSTALL_PREFIX={attempt / "private/unused-prefix"}',
                  f'-DBRLCAD_EXT_DIR={ext_output}', f'-DBRLCAD_EXT_SOURCE_DIR={bext}',
-                 '-DBRLCAD_EXT_PARALLEL=1', '-DBRLCAD_COMPONENTS=conv:gtools', '-DBRLCAD_BUNDLED_LIBS=AUTO',
+                 '-DBRLCAD_EXT_PARALLEL=1', cmake_source_components_arg(), '-DBRLCAD_BUNDLED_LIBS=AUTO',
                  '-DBRLCAD_ENABLE_STEP=ON', '-DBRLCAD_ENABLE_MINIMAL=ON', '-DBRLCAD_ENABLE_TCL=OFF',
                  '-DBRLCAD_ENABLE_TK=OFF', '-DBRLCAD_ENABLE_QT=OFF', '-DBRLCAD_ENABLE_OPENGL=OFF',
                  '-DBRLCAD_ENABLE_X11=OFF', '-DBRLCAD_ENABLE_GDAL=OFF', '-DBRLCAD_ENABLE_BULLET=OFF',
