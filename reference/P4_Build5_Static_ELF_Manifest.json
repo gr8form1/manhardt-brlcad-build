@@ -1,0 +1,933 @@
+{
+  "build_zip_sha256": "437fd42a8044c836d255fdde4b318a4d7ca92cbd3cbc073e8397ee9e3e86ec65",
+  "bundle_contains_mged_or_db_inspector": false,
+  "control_commit": "e25c46a1967fbca64948449d3fe027b657472f15",
+  "files": {
+    "bin/step-g": {
+      "bytes": 1953232,
+      "elf64": true,
+      "interpreter": [
+        "/lib64/ld-linux-x86-64.so.2"
+      ],
+      "machine_x86_64": true,
+      "needed": [
+        "librt.so.20",
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.5",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.34"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.18",
+          "3.4.20",
+          "3.4.21",
+          "3.4.29",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN/../lib"
+      ],
+      "sha256": "5cb3c20ac53827be697e1dcd6fe153586a9b13bab537166f9e27e8ead5f01e73"
+    },
+    "lib/libClipper2.so.1": {
+      "bytes": 202832,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.8",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.4",
+          "2.14"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.21",
+          "3.4.29",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "a5c802d805510a993b354101ad10aeea5136bb0fe38e0658b09caf75786c6253"
+    },
+    "lib/libOpenNURBS.so": {
+      "bytes": 11644104,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libz.so.1",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.5",
+          "1.3.8",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.27",
+          "2.29",
+          "2.32",
+          "2.33",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.11",
+          "3.4.14",
+          "3.4.18",
+          "3.4.19",
+          "3.4.21",
+          "3.4.22",
+          "3.4.29"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "4dd13835297814a7d05b8f9eb5f7004c66caeee2d010a58acff53b9631aa538a"
+    },
+    "lib/libbg.so.20": {
+      "bytes": 90484688,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libbn.so.20",
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.2",
+          "1.3.3",
+          "1.3.5",
+          "1.3.8",
+          "1.3.9",
+          "1.3.11",
+          "1.3.13"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.29",
+          "2.32",
+          "2.34",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.14",
+          "3.4.15",
+          "3.4.17",
+          "3.4.18",
+          "3.4.19",
+          "3.4.20",
+          "3.4.21",
+          "3.4.22",
+          "3.4.26",
+          "3.4.29",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "761c194b5f9edeb12078137e4cff7b35f271f22658ac1a38b063c6e7deb4f779"
+    },
+    "lib/libbn.so.20": {
+      "bytes": 993144,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.7",
+          "2.14",
+          "2.29",
+          "2.34",
+          "2.35",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4.11"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "f84c9aaaa20f893da4a2298a9a396b8ed472484dbf3baacf148b2d31f23303a8"
+    },
+    "lib/libbrep.so.20": {
+      "bytes": 29872888,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libbv.so.20",
+        "libOpenNURBS.so",
+        "libbg.so.20",
+        "libbn.so.20",
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.7",
+          "1.3.8",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.17",
+          "2.32",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.14",
+          "3.4.15",
+          "3.4.18",
+          "3.4.19",
+          "3.4.20",
+          "3.4.21",
+          "3.4.26",
+          "3.4.29",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "be7460ad1847e5f244dc46fb4427fef4ef4f8d1075f1a424d52b62c71ebba1fb"
+    },
+    "lib/libbu.so.20": {
+      "bytes": 6449248,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "liblmdb.so",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.2",
+          "2.3.4",
+          "2.4",
+          "2.7",
+          "2.11",
+          "2.14",
+          "2.15",
+          "2.17",
+          "2.32",
+          "2.33",
+          "2.34",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.14",
+          "3.4.15",
+          "3.4.17",
+          "3.4.18",
+          "3.4.19",
+          "3.4.20",
+          "3.4.21",
+          "3.4.22",
+          "3.4.26",
+          "3.4.29"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "094d66f7e70adc04120cc488310dac5cd8e6279b70bf6280311b8aa48826a44a"
+    },
+    "lib/libbv.so.20": {
+      "bytes": 2197552,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libbg.so.20",
+        "libbn.so.20",
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.4",
+          "2.4",
+          "2.7",
+          "2.14",
+          "2.29"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.18",
+          "3.4.21",
+          "3.4.29",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "c606958bb1937785dec3b1cffa0e13dd5b1bf213d1225b293e740fc2d21ea44a"
+    },
+    "lib/liblmdb.so": {
+      "bytes": 128464,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.2",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.32",
+          "2.33",
+          "2.34",
+          "2.38"
+        ],
+        "GLIBCXX": []
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "291ba4cc0c937f138449f45865b12a27d1bd01f637ec62d4d5932059c643f253"
+    },
+    "lib/libmanifold.so.3": {
+      "bytes": 1610544,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libClipper2.so.1",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.32",
+          "2.34",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.14",
+          "3.4.15",
+          "3.4.18",
+          "3.4.19",
+          "3.4.21",
+          "3.4.29",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "9f1dc0900b834258b94cbf36e7b68f7d25c912e9305ce5145444b2217bced791"
+    },
+    "lib/libmmesh.so.1": {
+      "bytes": 194128,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libm.so.6",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.2",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.29",
+          "2.33",
+          "2.34"
+        ],
+        "GLIBCXX": []
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "f5cca23fa63d666e4f33006c45b97ff18298fc05696049f51f202d11e35f33d9"
+    },
+    "lib/libnmg.so": {
+      "bytes": 3821976,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libbv.so.20",
+        "libbg.so.20",
+        "libbn.so.20",
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.4",
+          "2.4",
+          "2.14"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.18",
+          "3.4.29"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "453f2d6b1b8d3aa05ed46ac774cd94f90725199e9a97097cf975b4585495698e"
+    },
+    "lib/libregex_brl.so.1": {
+      "bytes": 64984,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.14"
+        ],
+        "GLIBCXX": []
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "81cd1f93f145809ba4fd9a96ea5b58a35fbf99e6074cd1191525a22bb12f58a9"
+    },
+    "lib/librt.so.20": {
+      "bytes": 36924048,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libbrep.so.20",
+        "libnmg.so",
+        "libbv.so.20",
+        "libOpenNURBS.so",
+        "libmmesh.so.1",
+        "libregex_brl.so.1",
+        "libmanifold.so.3",
+        "libbg.so.20",
+        "libbn.so.20",
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.5",
+          "1.3.8",
+          "1.3.9"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.7",
+          "2.11",
+          "2.14",
+          "2.29",
+          "2.33",
+          "2.34",
+          "2.35",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.14",
+          "3.4.15",
+          "3.4.18",
+          "3.4.19",
+          "3.4.21",
+          "3.4.22",
+          "3.4.29",
+          "3.4.30",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "2870e8a755490bd6d5ba4eb50d3f4a56dfb02d61880578bab4adea21ca9faf63"
+    },
+    "lib/libstepcore.so.0": {
+      "bytes": 710216,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libstepdai.so.0",
+        "libsteputils.so.0",
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.8"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.5",
+          "3.4.9",
+          "3.4.11",
+          "3.4.15",
+          "3.4.18",
+          "3.4.21",
+          "3.4.29",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "7c425be57e2eaa0f080554e37fcb0584ff3869dee199d71473f4e0bd383f1d5d"
+    },
+    "lib/libstepdai.so.0": {
+      "bytes": 119296,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libsteputils.so.0",
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.8"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.14"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.21",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "b3eddc4f50223473ac5bb7e526bc8768e256e8bc26748076bc5fede4e3997aef"
+    },
+    "lib/libstepeditor.so.0": {
+      "bytes": 183072,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libstepcore.so.0",
+        "libstepdai.so.0",
+        "libsteputils.so.0",
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.8"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.4",
+          "2.4",
+          "2.14"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.20",
+          "3.4.21",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "a61aee3928466124d304e9ff1fb725b7ac5024e847800a7ae23c97d174892f23"
+    },
+    "lib/libsteplazyfile.so.0": {
+      "bytes": 195504,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libstepeditor.so.0",
+        "libstepcore.so.0",
+        "libstepdai.so.0",
+        "libsteputils.so.0",
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.8"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.5",
+          "3.4.9",
+          "3.4.11",
+          "3.4.20",
+          "3.4.21",
+          "3.4.29",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "f8389ad6d410b44efd4aeb4f8893b644ee9e268c307322ef3a8eb03ffb2a1467"
+    },
+    "lib/libsteputils.so.0": {
+      "bytes": 60248,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.8"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.33"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.21",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "48e0fac295c829485f60fa1e1f06aa2f571e863f9d145d156d7c3de61e668b5d"
+    },
+    "lib/libwdb.so.20": {
+      "bytes": 1435136,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "librt.so.20",
+        "libOpenNURBS.so",
+        "libbn.so.20",
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [],
+        "GLIBC": [
+          "2.2.5",
+          "2.4",
+          "2.14"
+        ],
+        "GLIBCXX": [
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "9e64bb1e7500566186d0374eec819ba4dc0f16fb7788eeed74f4d04266d3e9cf"
+    },
+    "lib/libz.so.1": {
+      "bytes": 117713,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libc.so.6"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [],
+        "GLIBC": [
+          "2.2.5",
+          "2.3.4",
+          "2.4",
+          "2.14"
+        ],
+        "GLIBCXX": []
+      },
+      "runpath": [
+        "$ORIGIN"
+      ],
+      "sha256": "ecf002046edb58cb044ae85c663692c82814d92031505c18ef22ff997baf2d30"
+    },
+    "libexec/step/libstep-schema-ap242e2.so": {
+      "bytes": 103296080,
+      "elf64": true,
+      "interpreter": [],
+      "machine_x86_64": true,
+      "needed": [
+        "libwdb.so.20",
+        "librt.so.20",
+        "libbrep.so.20",
+        "libsteputils.so.0",
+        "libstepeditor.so.0",
+        "libstepdai.so.0",
+        "libstepcore.so.0",
+        "libOpenNURBS.so",
+        "libsteplazyfile.so.0",
+        "libbg.so.20",
+        "libbn.so.20",
+        "libbu.so.20",
+        "libstdc++.so.6",
+        "libm.so.6",
+        "libgcc_s.so.1",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "required_symbol_versions": {
+        "CXXABI": [
+          "1.3",
+          "1.3.3",
+          "1.3.7",
+          "1.3.9",
+          "1.3.13"
+        ],
+        "GLIBC": [
+          "2.2.5",
+          "2.3",
+          "2.3.4",
+          "2.4",
+          "2.14",
+          "2.32",
+          "2.34",
+          "2.35",
+          "2.38"
+        ],
+        "GLIBCXX": [
+          "3.4",
+          "3.4.9",
+          "3.4.11",
+          "3.4.14",
+          "3.4.15",
+          "3.4.18",
+          "3.4.19",
+          "3.4.20",
+          "3.4.21",
+          "3.4.22",
+          "3.4.26",
+          "3.4.29",
+          "3.4.30",
+          "3.4.32"
+        ]
+      },
+      "runpath": [
+        "$ORIGIN/../../lib"
+      ],
+      "sha256": "0580fe3e551387a21fca7661c4b369ff8a07292b8daaba789ce4171442367bfa"
+    }
+  },
+  "image_provider_abi_not_yet_observed": true,
+  "max_required_symbol_versions": {
+    "CXXABI": "1.3.13",
+    "GLIBC": "2.38",
+    "GLIBCXX": "3.4.32"
+  },
+  "mode": "READ_ONLY_ELF_STATIC_NOT_CONTAINER_ABI_PASS",
+  "nonbundled_needed": [
+    "ld-linux-x86-64.so.2",
+    "libc.so.6",
+    "libgcc_s.so.1",
+    "libm.so.6",
+    "libstdc++.so.6"
+  ],
+  "not_executed": true,
+  "p321_security_run": 42524555371,
+  "pinned_ubuntu_image": "docker.io/library/ubuntu@sha256:2e863c44b718727c860746568e1d54afd13b2fa71b160f5cd9058fc436217b30",
+  "plugin_exports_step_plugin_info": true,
+  "runtime_tar_sha256": "4447f9cc8ede6f0386a4a289c963d5b04df93aad25016e60d960d23e8cdece0c",
+  "source_run": 42485097796
+}

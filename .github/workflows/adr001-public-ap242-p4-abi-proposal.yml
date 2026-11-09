@@ -1,0 +1,114 @@
+name: ADR-001 P4 - proposed ABI-only public qualification (NO CAD)
+'on':
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Exact authorization scope (ABI_ONLY, no STEP geometry)'
+        required: true
+        default: ABI_ONLY
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: adr001-public-ap242-p4-abi
+  cancel-in-progress: false
+jobs:
+  abi_evidence_only:
+    if: >-
+      github.repository == 'gr8form1/manhardt-brlcad-build' &&
+      github.event.repository.private == false &&
+      github.event_name == 'workflow_dispatch' &&
+      github.run_attempt == 1 &&
+      inputs.confirmation == 'ABI_ONLY'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact future independently accepted revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+      - name: Independent authorization, frozen P3.2.1 and runner guards
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          APPROVED_SHA: ${{ vars.ADR001_P4_APPROVED_COMMIT }}
+          ACTUAL_SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          test -n "$APPROVED_SHA"
+          test "$ACTUAL_SHA" = "$APPROVED_SHA"
+          test "$REF" = refs/heads/main
+          test "$REPO" = gr8form1/manhardt-brlcad-build
+          test "$EVENT" = workflow_dispatch
+          test "$ATTEMPT" = 1
+          test "$(uname -m)" = x86_64
+          python3 -B -c 'import sys;sys.path.insert(0,"ci");import p4_abi_controller as p;from pathlib import Path;p.verify_control_source(Path.cwd())'
+      - name: Offline 49 existing regressions and new P4 tests BEFORE artifact acquisition
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          umask 077
+          mkdir -p out/security out/abi
+          python3 -I -B -m unittest discover -s ci -p test_preflight.py -v > out/P321_REGRESSIONS.log 2>&1
+          python3 -I -B -m unittest discover -s ci -p test_p4_abi_protocol.py -v > out/P4_REGRESSIONS.log 2>&1
+          sha256sum ci/ap242_preflight.py ci/p2_security.py ci/test_preflight.py ci/p3_finalize.py ci/fixture_canary.sh ci/process_tree_canary.sh .github/workflows/adr001-public-ap242-preflight.yml reference/P2_run42511228612_docker_info.json reference/P2_run42511228612_docker_inspect.json reference/P31_run42518017322_native_canary_sanitized.txt ci/p4_abi_controller.py ci/test_p4_abi_protocol.py .github/workflows/adr001-public-ap242-p4-abi-proposal.yml reference/P4_Build5_Static_ELF_Manifest.json > out/RELEASE_SOURCE_SHA256SUMS.txt
+      - name: Future approved same-run P3.2.1 confinement then loader ABI evidence ONLY
+        shell: bash --noprofile --norc -euo pipefail {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+          HOME: ${{ runner.temp }}
+        run: |
+          umask 077
+          # Single outer 600 s campaign; bounded host subprocesses and daemon cleanup follow.
+          timeout --signal=TERM --kill-after=20s 600s bash --noprofile --norc -euo pipefail -c '
+            python3 -B ci/ap242_preflight.py --output out/security
+            python3 -B ci/p4_abi_controller.py --output out/abi
+          '
+      - name: Independent cleanup of BOTH container label sets, failures included
+        if: ${{ always() }}
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          mkdir -p out/security out/abi
+          if ! command -v docker >/dev/null 2>&1; then
+            echo 'Docker CLI absent; cannot verify cleanup' | tee out/security/cleanup_failure.txt out/abi/cleanup_failure.txt
+            exit 1
+          fi
+          docker ps -aq --no-trunc --filter label=adr001.p2=public-ap242-preflight > out/security/cleanup_before.txt
+          docker ps -aq --no-trunc --filter label=adr001.p4=abi-only > out/abi/cleanup_before.txt
+          for list in out/security/cleanup_before.txt out/abi/cleanup_before.txt; do
+            while IFS= read -r id; do
+              if [[ -n "$id" ]]; then docker rm -f "$id"; fi
+            done < "$list"
+          done
+          docker ps -aq --no-trunc --filter label=adr001.p2=public-ap242-preflight > out/security/cleanup_after.txt
+          docker ps -aq --no-trunc --filter label=adr001.p4=abi-only > out/abi/cleanup_after.txt
+          test ! -s out/security/cleanup_after.txt
+          test ! -s out/abi/cleanup_after.txt
+      - name: Independent post-cleanup SHA-256 inventory for BOTH evidence sets
+        if: ${{ always() }}
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          umask 077
+          a=0; b=0
+          python3 -B ci/p3_finalize.py --output out/security || a=$?
+          python3 -B ci/p3_finalize.py --output out/abi || b=$?
+          test "$a" -eq 0 && test "$b" -eq 0
+      - name: Preserve complete bounded raw success or failure evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: adr001-p4-abi-only-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 6
+          retention-days: 1
+# No step-g entrypoint, --schema, -D, .g writes, conversion, geometry, or acoustic solving.
+# PLUGIN DISPATCH, POSITIVE DRY RUN, CONVERSION, DB INSPECTOR are future separate authorization gates.
