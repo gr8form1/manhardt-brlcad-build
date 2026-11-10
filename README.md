@@ -1,3 +1,32 @@
+# Staged workflow update — November 10, 2026
+
+A separate, **manual-only** workflow now exists at
+`.github/workflows/build-brlcad-staged.yml`. Its definition is also
+registered on the default branch so GitHub Actions can display and dispatch
+it, but both jobs have a strict
+`refs/heads/feature/reusable-geometry-toolkit` branch guard.
+
+The dependency job compiles the same pinned bext prefix and uploads an
+authenticated tar checkpoint. The completion job downloads that checkpoint
+from the **same GitHub run and commit**, rejects any changed source pin,
+runner-image identity, compiler binary hash, absolute build path or file
+inventory, then compiles the pinned BRL-CAD targets and packages the seven
+required schema libraries. Both jobs have independent 240-minute limits;
+no automatic retries, source substitution or OEM CAD are included.
+
+**No native staged execution or release acceptance has yet taken place.**
+The staged workflow avoids the aggregate four-hour single-job deadline;
+it does not eliminate compilation or guarantee artifact-size and
+cross-job ABI acceptance. The dependency checkpoint is capped at 1.8 GB,
+and the completion job fails closed if its same-run checkpoint is missing
+or incompatible. Both outputs have one-day retention and need prompt
+independent archive custody.
+
+The original `build-brlcad.yml` and frozen Build #8 artifacts are unchanged.
+No Lenovo audio services or production numerical pipelines are altered.
+
+---
+
 # Current execution status and AP242 schema-closure correction — November 10, 2026
 
 **Current active implementation branch:** `feature/reusable-geometry-toolkit`.
