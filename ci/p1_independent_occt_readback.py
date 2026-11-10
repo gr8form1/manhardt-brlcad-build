@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import tempfile
+from contextlib import nullcontext
 
 REQUIRED = ('box', 'cylinder')
 FIXTURE_FILES = {'box': 'occt_public_box_10.step',
@@ -116,7 +116,7 @@ def readback(path, label):
             'source_sha256': sha256(source)}
 
 
-def run_gate(runtime, fixture_dir):
+def run_gate(runtime, fixture_dir, evidence_dir):
     runtime, fixture_dir = Path(runtime).resolve(), Path(fixture_dir).resolve()
     if not (runtime / 'bin/step-g').is_file() or not (runtime / 'bin/g-step').is_file():
         raise RuntimeError('Required native BRL-CAD runtime executables missing')
@@ -126,9 +126,13 @@ def run_gate(runtime, fixture_dir):
         raise RuntimeError('Required native BRL-CAD runtime library directory missing')
     # Avoid accidentally loading unrelated system BRL-CAD libraries.
     env = dict(os.environ, BRLCAD_ROOT=str(runtime), LD_LIBRARY_PATH=str(runtime / 'lib'))
+    evidence_dir = Path(evidence_dir).resolve()
+    if evidence_dir.exists():
+        raise RuntimeError('Refusing to overwrite an existing P1 evidence directory')
+    evidence_dir.mkdir(parents=True, exist_ok=False)
     result = {'schema': 'MANHARDT_ADR001_P1_INDEPENDENT_OCCT_READBACK/1',
               'status': 'HOLD_UNTIL_ALL_CONTROLS_PASS', 'fixtures': {}}
-    with tempfile.TemporaryDirectory(prefix='manhardt-p1-readback-') as tmp:
+    with nullcontext(evidence_dir) as tmp:
         root = Path(tmp)
         for label in REQUIRED:
             input_step = fixture_dir / FIXTURE_FILES[label]
@@ -138,9 +142,13 @@ def run_gate(runtime, fixture_dir):
             output_step = root / (label + '-roundtrip.step')
             imported_report = root / (label + '-import.json')
             export_report = root / (label + '-export.json')
-            subprocess.run([str(runtime / 'bin/step-g'), '--strict', '--repair', 'safe',
-                            '--report', str(imported_report), '-o', str(database), str(input_step)],
-                           check=True, env=env, timeout=120, capture_output=True)
+            command = [str(runtime / 'bin/step-g'), '--strict', '--repair', 'safe',
+                       '--report', str(imported_report), '-o', str(database), str(input_step)]
+            completed = subprocess.run(command, check=False, env=env, timeout=120, capture_output=True)
+            (root / (label + '-import.stdout')).write_bytes(completed.stdout)
+            (root / (label + '-import.stderr')).write_bytes(completed.stderr)
+            if completed.returncode:
+                raise RuntimeError(f'{label}: native import exit {completed.returncode}; see retained logs')
             data = json.loads(imported_report.read_text())
             if (data.get('exit_status') != 0 or
                     data.get('coverage', {}).get('outcome') != 'complete' or
@@ -148,10 +156,14 @@ def run_gate(runtime, fixture_dir):
                     data.get('validation', {}).get('invalid_breps') != 0 or
                     data.get('validation', {}).get('output_failures') != 0):
                 raise RuntimeError(f'{label}: native import coverage incomplete')
-            subprocess.run([str(runtime / 'bin/g-step'), '--strict', '--schema', 'ap242e4',
-                            '--output-units', 'mm', '--angle-units', 'radian',
-                            '--report', str(export_report), '-o', str(output_step), str(database)],
-                           check=True, env=env, timeout=120, capture_output=True)
+            command = [str(runtime / 'bin/g-step'), '--strict', '--schema', 'ap242e4',
+                       '--output-units', 'mm', '--angle-units', 'radian',
+                       '--report', str(export_report), '-o', str(output_step), str(database)]
+            completed = subprocess.run(command, check=False, env=env, timeout=120, capture_output=True)
+            (root / (label + '-export.stdout')).write_bytes(completed.stdout)
+            (root / (label + '-export.stderr')).write_bytes(completed.stderr)
+            if completed.returncode:
+                raise RuntimeError(f'{label}: native export exit {completed.returncode}; see retained logs')
             report = json.loads(export_report.read_text())
             if report.get('exit_status') != 0 or report.get('coverage', {}).get('outcome') != 'complete':
                 raise RuntimeError(f'{label}: native export coverage incomplete')
@@ -162,6 +174,12 @@ def run_gate(runtime, fixture_dir):
     result['status'] = 'PUBLIC_OCCT_READBACK_PASS_CANDIDATE'
     result['nonclaims'] = ['transformed assemblies', 'general curved geometry',
                            'SPK16/C16 fidelity', 'Lenovo deployment', 'manufacturing']
+    (evidence_dir / 'RESULT.json').write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+    manifest = []
+    for child in sorted(evidence_dir.iterdir()):
+        if child.is_file() and child.name != 'SHA256SUMS':
+            manifest.append(f'{sha256(child)}  {child.name}\n')
+    (evidence_dir / 'SHA256SUMS').write_text(''.join(manifest))
     return result
 
 
@@ -169,9 +187,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--fixtures', type=Path, required=True)
+    parser.add_argument('--evidence-dir', type=Path, required=True,
+                        help='New directory retaining native artifacts, reports and hashes')
     parser.add_argument('--report', type=Path)
     args = parser.parse_args()
-    verdict = run_gate(args.runtime, args.fixtures)
+    verdict = run_gate(args.runtime, args.fixtures, args.evidence_dir)
     result_text = json.dumps(verdict, indent=2, sort_keys=True) + '\n'
     if args.report:
         if args.report.exists():
