@@ -10,7 +10,7 @@ jobs:
   bext:
     if: >-
       github.repository == 'gr8form1/manhardt-brlcad-build' &&
-      github.ref == 'refs/heads/feature/reusable-geometry-toolkit' &&
+      github.ref == 'refs/heads/feature/step-export-p1-signedzero' &&
       github.event.repository.private == false &&
       github.event_name == 'workflow_dispatch' && github.run_attempt == 1
     runs-on: ubuntu-24.04
@@ -62,7 +62,7 @@ jobs:
     needs: bext
     if: >-
       github.repository == 'gr8form1/manhardt-brlcad-build' &&
-      github.ref == 'refs/heads/feature/reusable-geometry-toolkit' &&
+      github.ref == 'refs/heads/feature/step-export-p1-signedzero' &&
       github.event.repository.private == false &&
       github.event_name == 'workflow_dispatch' && github.run_attempt == 1
     runs-on: ubuntu-24.04
