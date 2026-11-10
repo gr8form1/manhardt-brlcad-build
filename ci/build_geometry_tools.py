@@ -167,6 +167,7 @@ def main():
                     'ci/geometry_bundle.py', 'ci/geometry_profile.py', 'ci/native_geometry_smoke.py',
                     'ci/bundle.py', 'ci/common.py', 'ci/bext_checkpoint.py',
                     'tests/test_geometry_tools.py', 'tests/test_bext_checkpoint.py',
+                    'ci/step_export_p1_patch.py', 'tests/test_step_export_p1_patch.py',
                     '.github/workflows/build-brlcad-staged.yml', 'pins/sources.json']:
             # Avoid hidden output paths, which upload-artifact intentionally omits.
             stored = 'workflow/' + Path(rel).name if rel.startswith('.github/') else rel
@@ -236,6 +237,12 @@ def main():
                            'lenovo_release': 'NOT_QUALIFIED_NOT_AUTHORIZED'})
             return_code = 0
             return return_code
+        # P1 is a source-locked candidate patch, not a new upstream source pin.
+        # Apply only after the full bext-only branch returns; preserve before/after
+        # source snapshots and a two-file hash receipt for independent review.
+        from step_export_p1_patch import apply_source_patch
+        p1_receipt = apply_source_patch(brl, pins['brlcad_commit'])
+        write_json(metadata / 'step-export-p1-source-patch.json', p1_receipt)
         build = attempt / 'build/brlcad'
         query = build / '.cmake/api/v1/query';query.mkdir(parents=True)
         (query / 'codemodel-v2').touch()
