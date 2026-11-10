@@ -229,10 +229,10 @@ def main():
         targets = target_artifacts(build)
         write_json(metadata / 'target-artifacts.json', {k: [str(p) for p in v]
                                                        for k, v in targets.items() if v})
-        plugin_targets = ['step-schema-' + x for x in
-                          ['ap203', 'ap203e2', 'ap214', 'ap242e1', 'ap242e2', 'ap242e3', 'ap242e4']]
-        require(all(name in targets and targets[name] and targets[name][0].is_file()
-                    for name in plugin_targets), 'Stock required schema plugin missing')
+        plugin_targets = ['step-schema-' + schema for schema in SCHEMAS]
+        require(all(name in targets and len(targets[name]) == 1 and targets[name][0].is_file()
+                    for name in plugin_targets),
+                'Required STEP schema edition missing or ambiguous')
         verify_submodules(rec, bext, pins)
         snapshot(rec, brl, bext, metadata)
         rec.run(['df', '-B1', str(attempt)]);rec.run(['free', '-b'])
