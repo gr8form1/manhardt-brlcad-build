@@ -10,6 +10,7 @@ jobs:
   build:
     if: >-
       github.repository == 'gr8form1/manhardt-brlcad-build' &&
+      github.ref == 'refs/heads/feature/reusable-geometry-toolkit' &&
       github.event.repository.private == false &&
       github.event_name == 'workflow_dispatch' && github.run_attempt == 1
     runs-on: ubuntu-24.04
