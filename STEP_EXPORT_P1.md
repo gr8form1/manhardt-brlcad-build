@@ -48,3 +48,21 @@ The postbuild independent acceptance utility is ci/p1_independent_occt_readback.
 **Known limitation:** nonzero transformed secondary representations may still use an OCCT-unreadable complex relationship; P1 does not claim general STEP export qualification.
 
 The NC-001 LF solver phasor issue, C16 aperture/header/boss issues, VQ-001 restrictions, SPK16 geometry HOLD, numerical production HOLD and October 18 capital STOP remain unchanged. No spending, purchasing, fabrication, service changes, source CAD mutation or release is authorized.
+
+## Corrected safe launch boundary (November 10)
+
+The new branch-only workflow file was intentionally retired because GitHub
+requires a manual workflow to be registered on the default branch.
+
+For initial P1 verification, use the repository's existing registered manual
+**Manhardt staged BRL-CAD schema closure** workflow, but select
+**feature/step-export-p1-signedzero** in the branch menu. The workflow file on
+this specific branch has been changed to run **only** a lightweight static,
+Python and standalone C++ preflight. It does not acquire or compile BRL-CAD,
+bext, or the geometry runtime. It retains small evidence for seven days.
+
+The registered workflow on other branches has different code and may perform
+full multi-hour builds. Therefore, branch selection is part of the safety
+boundary and must be verified on the resulting GitHub run's commit and ref.
+The source-patch native-build workflow was held back on this P1 branch until
+the lightweight preflight and independent source review are accepted.
