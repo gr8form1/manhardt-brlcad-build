@@ -52,17 +52,40 @@ class Toolkit(unittest.TestCase):
                 with self.subTest(value=value[-90:]), self.assertRaises(RuntimeError):
                     smoke.check_tetrahedron_step(p)
 
-    def test_native_fixture_aabb_checker(self):
-        good = "min {0 0 0} max {10 10 10}"
-        self.assertEqual(smoke.check_tetrahedron_bounds(good),
-                         [0., 0., 0., 10., 10., 10.])
-        with self.assertRaisesRegex(RuntimeError, 'differs'):
-            smoke.check_tetrahedron_bounds("min {0 0 0} max {10.002 10 10}")
-        for malformed in ("no AABB", "min {0 0 0} max {nan 10 10}",
-                          "min {0 0 0} max {foo 10 10}",
-                          "min {0 0} max {10 10 10}"):
-            with self.subTest(malformed=malformed), self.assertRaises(RuntimeError):
-                smoke.check_tetrahedron_bounds(malformed)
+    def test_native_tetrahedron_top_selects_geometry_not_metadata(self):
+        self.assertEqual(smoke.select_tetrahedron_top('_STEP_METADATA toolkit_tetra\n'),
+                         'toolkit_tetra')
+        self.assertEqual(smoke.select_tetrahedron_top('toolkit_tetra\n'),
+                         'toolkit_tetra')
+        for listing in ('', '_STEP_METADATA', 'toolkit_tetra extra_geometry',
+                        'toolkit_tetra toolkit_tetra', 'wrong_tetra',
+                        'toolkit_tetra _STEP_METADATA extra_metadata'):
+            with self.subTest(listing=listing), self.assertRaises(RuntimeError):
+                smoke.select_tetrahedron_top(listing)
+
+    def test_native_tetrahedron_vertices_and_planar_surfaces(self):
+        native = ('m_V[0]: 0 0 0  Used by 3 edges\n'
+                  '   m_E[0]: 0 -> 1\n'
+                  'm_V[1]: 0 10 0  Used by 3 edges\n'
+                  'm_V[2]: 10 0 0  Used by 3 edges\n'
+                  'm_V[3]: 0 0 10  Used by 3 edges\n')
+        value = smoke.check_tetrahedron_native_vertices(native)
+        self.assertEqual(value['vertex_aabb_mm'], [0., 0., 0., 10., 10., 10.])
+        self.assertAlmostEqual(value['vertex_determinant_volume_mm3'], 1000./6.)
+        for changed in (native.replace('0 10 0', '0 9.998 0'),
+                        native.replace('m_V[3]', 'm_V[4]'),
+                        native.replace('10 0 0', 'nan 0 0'),
+                        native.replace('m_V[3]: 0 0 10', 'm_V[3]: 0 0 0'),
+                        native.replace('Used by 3 edges', 'unknown', 1)):
+            with self.subTest(changed=changed[-80:]), self.assertRaises(RuntimeError):
+                smoke.check_tetrahedron_native_vertices(changed)
+        planes = ''.join(f'surface[ {i}]: ON_PlaneSurface u(0, 1) v(0, 1)\n'
+                         for i in range(4))
+        self.assertEqual(smoke.check_tetrahedron_native_surfaces(planes), 4)
+        for changed in (planes.replace('ON_PlaneSurface', 'ON_NurbsSurface', 1),
+                        planes.replace('surface[ 3]', 'surface[ 4]')):
+            with self.subTest(changed=changed[-80:]), self.assertRaises(RuntimeError):
+                smoke.check_tetrahedron_native_surfaces(changed)
 
     def test_packaging_requires_each_tool_and_each_schema(self):
         with tempfile.TemporaryDirectory() as d:
