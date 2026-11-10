@@ -78,7 +78,9 @@ def package_runtime(rec, attempt, out, brl, bext, build, ext_build, ext_output, 
     second=attempt/'second-prefix/other-layout/brlcad-geometry-tools'
     second.parent.mkdir(parents=True);shutil.copytree(runtime,second)
     results={}
-    with bundle.hidden_build_trees([build,ext_build,ext_output]):
+    # The staged completion job restores bext-output, not its old CMake build tree.
+    # Hide all and only the actual provider/build directories during relocation tests.
+    with bundle.hidden_build_trees([p for p in (build, ext_build, ext_output) if p.is_dir()]):
         for number,root in enumerate((runtime,second),1):
             loader=bundle.verify_loader_map(rec,root,baseline)
             env=dict(rec.env,BRLCAD_ROOT=str(root.resolve()))
