@@ -12,6 +12,22 @@ PRODUCT = "src/conv/step/STEPProductExport.cpp"
 ASSEMBLY = "src/conv/step/g-step/Assembly_Product.cpp"
 
 
+IDENTITY_HELPER = '''/* A source STEP placement may contain IEEE-754 negative zeros.  The
+ * bytewise bn_mat_is_identity() rejects those even though -0.0 == +0.0.
+ * Use exact numerical equality here: this removes signed-zero differences
+ * without hiding any nonzero translation, rotation, or scale.  Do not
+ * change emit_occurrence() or its legitimate NAUO/CDSR transformations. */
+static bool
+identity_numeric_strict(const matp_t matrix)
+{
+    if (!matrix) return true;
+    for (size_t i = 0; i < 16; ++i)
+        if (matrix[i] != bn_mat_identity[i]) return false;
+    return true;
+}
+
+'''
+
 def _replace_once(text, before, after, label):
     if text.count(before) != 1 or after in text:
         raise RuntimeError("P1 source anchor mismatch: " + label)
@@ -33,22 +49,7 @@ def plan_edits(product_source, assembly_source):
         '    brlcad::step::SetString(product_context, "discipline_type", "mechanical");',
         "required product-context discipline type")
     anchor = 'static bool\nemit_representation_membership(struct directory *parent_dp,'
-    helper = '''/* A source STEP placement may contain IEEE-754 negative zeros.  The
- * bytewise bn_mat_is_identity() rejects those even though -0.0 == +0.0.
- * Use exact numerical equality here: this removes signed-zero differences
- * without hiding any nonzero translation, rotation, or scale.  Do not
- * change emit_occurrence() or its legitimate NAUO/CDSR transformations. */
-static bool
-identity_numeric_strict(const matp_t matrix)
-{
-    if (!matrix) return true;
-    for (size_t i = 0; i < 16; ++i)
-        if (matrix[i] != bn_mat_identity[i]) return false;
-    return true;
-}
-
-'''
-    assembly = _replace_once(assembly_source, anchor, helper + anchor,
+    assembly = _replace_once(assembly_source, anchor, IDENTITY_HELPER + anchor,
                              "membership-only identity comparator")
     assembly = _replace_once(
         assembly,
