@@ -1,3 +1,80 @@
+# Staged workflow update — November 10, 2026
+
+A separate, **manual-only** workflow now exists at
+`.github/workflows/build-brlcad-staged.yml`. Its definition is also
+registered on the default branch so GitHub Actions can display and dispatch
+it, but both jobs have a strict
+`refs/heads/feature/reusable-geometry-toolkit` branch guard.
+
+The dependency job compiles the same pinned bext prefix and uploads an
+authenticated tar checkpoint. The completion job downloads that checkpoint
+from the **same GitHub run and commit**, rejects any changed source pin,
+runner-image identity, compiler binary hash, absolute build path or file
+inventory, then compiles the pinned BRL-CAD targets and packages the seven
+required schema libraries. Both jobs have independent 240-minute limits;
+no automatic retries, source substitution or OEM CAD are included.
+
+**No native staged execution or release acceptance has yet taken place.**
+The staged workflow avoids the aggregate four-hour single-job deadline;
+it does not eliminate compilation or guarantee artifact-size and
+cross-job ABI acceptance. The dependency checkpoint is capped at 1.8 GB,
+and the completion job fails closed if its same-run checkpoint is missing
+or incompatible. Both outputs have one-day retention and need prompt
+independent archive custody.
+
+The original `build-brlcad.yml` and frozen Build #8 artifacts are unchanged.
+No Lenovo audio services or production numerical pipelines are altered.
+
+---
+
+# Current execution status and AP242 schema-closure correction — November 10, 2026
+
+**Current active implementation branch:** `feature/reusable-geometry-toolkit`.
+The November 7 candidate description below is historical. Its statements that the
+repository has not been created or that no GitHub build has run are superseded.
+Do not use those statements to determine current execution or qualification status.
+
+**Authenticated baseline:** Build #8, GitHub run `42743543664`, branch commit
+`f847b636be24d8499b44b075483cf1f5562a9ab1`, completed successfully.
+It compiled stock target files for seven STEP editions, but the reusable
+runtime profile selected only `ap203`, `ap214`, and `ap242e2`, so the
+relocated artifact lacked `libstep-schema-ap242e4.so`. Independently replayed
+automatic `step-g` import of a public tetrahedron failed with that missing
+library; explicit AP242e2 import of the same tetrahedron succeeded.
+
+**Corrective scope for the next manually dispatched workflow:**
+
+- Retain existing pinned BRL-CAD, bext, STEPcode, openNURBS, CMake, GCC,
+  command sources, branch isolation and 240-minute CI timeout.
+- Require and package all seven stock plugins: AP203, AP203e2, AP214,
+  AP242e1, AP242e2, AP242e3 and AP242e4. The build target graph already
+  produces these binaries; packaging is the defect.
+- Reuse the two independent relocated-prefix checks and full SHA-256
+  manifests, now covering the expanded plugin and dynamic-library closure.
+- Exercise the existing AP242e2 analytic tetrahedron round trip, plus a
+  separate explicit AP242e4 **strict no-repair** native import, geometric
+  inspection, export and strict reimport; also check automatic selection
+  without asserting that a shared Part 21 FILE_SCHEMA text identifies an
+  exact AP242 edition.
+- Preserve the successful Build #8 artifact and frozen Build #5 unchanged.
+  No manufacturer CAD, customer data, account credentials, geometry repair
+  or solver-production authority is introduced into the public repository.
+
+**Qualification boundary:** passing these tests establishes only an
+authenticated, portable schema-complete CLI candidate on the public
+analytic fixture. It does NOT establish AP242 edition identification for
+an OEM STEP, unchanged geometry on arbitrary curved surfaces, SPK16/C16
+source equivalence, mesh suitability or acoustic-model correctness.
+Those remain under VQ-001 G1 HOLD pending independent source-grounded
+cross-kernel testing.
+
+**Dispatch:** this workflow is intentionally manual-only. Start a fresh
+`workflow_dispatch` against this feature branch after the corrective
+commit is verified. Do not rerun an earlier failed run: GitHub reruns use
+their previous commits. Retain and independently review the artifact
+before its one-day expiration. The founder's capital STOP remains in force.
+
+---
 # ADR-001 — Public BRL-CAD Build Candidate v3.0
 
 November 7, 2026 · Implementation-side preparation · **Not dispatched or independently accepted**
