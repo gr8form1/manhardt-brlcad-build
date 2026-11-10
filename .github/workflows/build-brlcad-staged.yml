@@ -44,7 +44,7 @@ jobs:
           assert 'apply_source_patch(brl, pins[\'brlcad_commit\'])' in build_source
           workflow = Path('.github/workflows/build-brlcad-staged.yml').read_text()
           assert workflow.count("github.ref == 'refs/heads/feature/step-export-p1-signedzero'") == 2
-          assert not any(line.lstrip().startswith('run: python3 ci/build_geometry_tools.py') for line in workflow.splitlines())
+          assert all('ci/build_geometry_tools.py' not in line for line in workflow.splitlines() if line.lstrip().startswith(('run:', 'python3 ')))
           assert "workflow_dispatch:" in workflow
           out = {'schema': 'MANHARDT_ADR001_P1_OFFLINE_PREFLIGHT/1',
                  'result': 'STATIC_CONTROLS_ONLY_NOT_NATIVE_ACCEPTANCE',
