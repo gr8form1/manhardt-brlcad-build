@@ -2,7 +2,8 @@
 
 Requires OCP 7.9.3.1, a locally supplied BRL-CAD runtime and the public
 OCCT STEP fixtures. Does not run or acquire anything at import time. Never
-writes input files; all conversion output is isolated in a temporary folder.
+modifies input fixtures; generated files are isolated in a new retained
+no-overwrite evidence directory.
 """
 import argparse
 import hashlib
