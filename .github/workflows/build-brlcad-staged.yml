@@ -1,0 +1,104 @@
+name: Manhardt staged BRL-CAD schema closure
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: manhardt-brlcad-geometry-toolkit-build
+  cancel-in-progress: false
+jobs:
+  bext:
+    if: >-
+      github.repository == 'gr8form1/manhardt-brlcad-build' &&
+      github.ref == 'refs/heads/feature/reusable-geometry-toolkit' &&
+      github.event.repository.private == false &&
+      github.event_name == 'workflow_dispatch' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Require public repository and first manual attempt
+        env:
+          REPOSITORY: ${{ github.repository }}
+          PRIVATE: ${{ github.event.repository.private }}
+          ATTEMPT: ${{ github.run_attempt }}
+          EVENT: ${{ github.event_name }}
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: |
+          python3 - <<'PY'
+          import os
+          assert (os.environ['REPOSITORY'], os.environ['PRIVATE'],
+                  os.environ['EVENT'], os.environ['ATTEMPT']) == (
+                     'gr8form1/manhardt-brlcad-build', 'false', 'workflow_dispatch', '1')
+          PY
+      - name: Checkout this public source commit
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+      - name: Offline checkpoint and source regression
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: python3 -m unittest discover -s tests -v
+      - name: Compile pinned bext dependency prefix only
+        env:
+          MANHARDT_BUILD_STAGE: bext
+          CMAKE_BUILD_PARALLEL_LEVEL: '1'
+          MAKEFLAGS: '-j1'
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: python3 ci/build_geometry_tools.py
+      - name: Preserve dependency checkpoint or failure diagnostics
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: manhardt-bext-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 0
+          retention-days: 1
+  toolkit:
+    needs: bext
+    if: >-
+      github.repository == 'gr8form1/manhardt-brlcad-build' &&
+      github.ref == 'refs/heads/feature/reusable-geometry-toolkit' &&
+      github.event.repository.private == false &&
+      github.event_name == 'workflow_dispatch' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout same source commit
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+      - name: Offline checkpoint and source regression
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: python3 -m unittest discover -s tests -v
+      - name: Retrieve dependency stage from same workflow run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: manhardt-bext-${{ github.run_id }}-${{ github.run_attempt }}
+          path: stage-bext
+      - name: Verify checkpoint; compile BRL-CAD, package all STEP editions
+        env:
+          MANHARDT_BUILD_STAGE: complete
+          MANHARDT_BEXT_INPUT: stage-bext
+          CMAKE_BUILD_PARALLEL_LEVEL: '1'
+          MAKEFLAGS: '-j1'
+        shell: bash --noprofile --norc -euo pipefail {0}
+        run: python3 ci/build_geometry_tools.py
+      - name: Preserve toolkit candidate or failure diagnostics
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: manhardt-geometry-tools-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/
+          if-no-files-found: error
+          include-hidden-files: false
+          compression-level: 0
+          retention-days: 1
