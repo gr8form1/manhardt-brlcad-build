@@ -35,6 +35,8 @@ The five tests in tests/test_step_export_p1_patch.py cover required-field insert
 
 These are source-level unit checks, not independent native STEP interoperability qualification.
 
+The postbuild independent acceptance utility is ci/p1_independent_occt_readback.py. With a separately supplied OCP 7.9.3.1 environment, the original public OCCT fixtures and a candidate runtime, it executes native import/export and requires valid OCCT readback, one box/cylinder solid, six/three faces, required context strings, and adaptive volume within 0.005% of analytic controls. It rejects the frozen Build #9 exporter. This utility is preserved in the build evidence inventory but is not yet automatically wired into CI, so green CI remains **insufficient** for export acceptance.
+
 ## Required acceptance gates
 
 1. Independently inspect patch, review the source receipts and run the full offline suite.
