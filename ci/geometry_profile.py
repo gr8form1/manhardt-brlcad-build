@@ -2,7 +2,9 @@
 from pathlib import Path
 
 EXECUTABLES = ('step-g', 'g-step', 'gsh', 'gqa')
-SCHEMAS = ('ap203', 'ap214', 'ap242e2')
+# Match all seven schema targets actually built by the pinned upstream tree.
+# AP242 editions share a FILE_SCHEMA identifier but differ in generated bindings.
+SCHEMAS = ('ap203', 'ap203e2', 'ap214', 'ap242e1', 'ap242e2', 'ap242e3', 'ap242e4')
 BUILD_TARGETS = EXECUTABLES + ('ged_subprocesses',)
 
 # BRL-CAD src/CMakeLists.txt consumes a CMake list, not bext's colon profile.
