@@ -168,6 +168,7 @@ def main():
                     'ci/bundle.py', 'ci/common.py', 'ci/bext_checkpoint.py',
                     'tests/test_geometry_tools.py', 'tests/test_bext_checkpoint.py',
                     'ci/step_export_p1_patch.py', 'tests/test_step_export_p1_patch.py',
+                    'ci/p1_independent_occt_readback.py',
                     '.github/workflows/build-brlcad-staged.yml', 'pins/sources.json']:
             # Avoid hidden output paths, which upload-artifact intentionally omits.
             stored = 'workflow/' + Path(rel).name if rel.startswith('.github/') else rel
