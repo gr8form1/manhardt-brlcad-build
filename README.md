@@ -1,3 +1,51 @@
+# Current execution status and AP242 schema-closure correction — November 10, 2026
+
+**Current active implementation branch:** `feature/reusable-geometry-toolkit`.
+The November 7 candidate description below is historical. Its statements that the
+repository has not been created or that no GitHub build has run are superseded.
+Do not use those statements to determine current execution or qualification status.
+
+**Authenticated baseline:** Build #8, GitHub run `42743543664`, branch commit
+`f847b636be24d8499b44b075483cf1f5562a9ab1`, completed successfully.
+It compiled stock target files for seven STEP editions, but the reusable
+runtime profile selected only `ap203`, `ap214`, and `ap242e2`, so the
+relocated artifact lacked `libstep-schema-ap242e4.so`. Independently replayed
+automatic `step-g` import of a public tetrahedron failed with that missing
+library; explicit AP242e2 import of the same tetrahedron succeeded.
+
+**Corrective scope for the next manually dispatched workflow:**
+
+- Retain existing pinned BRL-CAD, bext, STEPcode, openNURBS, CMake, GCC,
+  command sources, branch isolation and 240-minute CI timeout.
+- Require and package all seven stock plugins: AP203, AP203e2, AP214,
+  AP242e1, AP242e2, AP242e3 and AP242e4. The build target graph already
+  produces these binaries; packaging is the defect.
+- Reuse the two independent relocated-prefix checks and full SHA-256
+  manifests, now covering the expanded plugin and dynamic-library closure.
+- Exercise the existing AP242e2 analytic tetrahedron round trip, plus a
+  separate explicit AP242e4 **strict no-repair** native import, geometric
+  inspection, export and strict reimport; also check automatic selection
+  without asserting that a shared Part 21 FILE_SCHEMA text identifies an
+  exact AP242 edition.
+- Preserve the successful Build #8 artifact and frozen Build #5 unchanged.
+  No manufacturer CAD, customer data, account credentials, geometry repair
+  or solver-production authority is introduced into the public repository.
+
+**Qualification boundary:** passing these tests establishes only an
+authenticated, portable schema-complete CLI candidate on the public
+analytic fixture. It does NOT establish AP242 edition identification for
+an OEM STEP, unchanged geometry on arbitrary curved surfaces, SPK16/C16
+source equivalence, mesh suitability or acoustic-model correctness.
+Those remain under VQ-001 G1 HOLD pending independent source-grounded
+cross-kernel testing.
+
+**Dispatch:** this workflow is intentionally manual-only. Start a fresh
+`workflow_dispatch` against this feature branch after the corrective
+commit is verified. Do not rerun an earlier failed run: GitHub reruns use
+their previous commits. Retain and independently review the artifact
+before its one-day expiration. The founder's capital STOP remains in force.
+
+---
 # ADR-001 — Public BRL-CAD Build Candidate v3.0
 
 November 7, 2026 · Implementation-side preparation · **Not dispatched or independently accepted**
