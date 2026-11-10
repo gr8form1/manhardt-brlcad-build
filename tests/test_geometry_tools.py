@@ -87,6 +87,27 @@ class Toolkit(unittest.TestCase):
             with self.subTest(changed=changed[-80:]), self.assertRaises(RuntimeError):
                 smoke.check_tetrahedron_native_surfaces(changed)
 
+    def test_cmake_file_api_evidence_remains_upload_visible(self):
+        # Build #7 SHA256SUMS listed 1,028 paths omitted by upload-artifact
+        # solely because its default excludes hidden .cmake/ directories.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            reply = root/'attempt/build/brlcad/.cmake/api/v1/reply'
+            reply.mkdir(parents=True)
+            (reply/'codemodel-v2-test.json').write_text('{"test":true}\n')
+            metadata = root/'evidence'
+            build_geometry_tools.collect_build_evidence(root/'attempt', metadata)
+            retained = metadata/'stock-build-records/brlcad/cmake-file-api/api/v1/reply/codemodel-v2-test.json'
+            self.assertEqual(retained.read_text(), '{"test":true}\n')
+            rows = json.loads((metadata/'stock-build-records.json').read_text())
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['path'], '.cmake/api/v1/reply/codemodel-v2-test.json')
+            self.assertEqual(rows[0]['evidence_path'],
+                             'cmake-file-api/api/v1/reply/codemodel-v2-test.json')
+            self.assertFalse(any(part.startswith('.') for item in metadata.rglob('*')
+                                 if item.is_file() for part in
+                                 item.relative_to(metadata).parts))
+
     def test_packaging_requires_each_tool_and_each_schema(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);targets={}
