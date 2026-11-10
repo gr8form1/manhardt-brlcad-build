@@ -166,6 +166,7 @@ def main():
         for rel in ['.github/workflows/build-brlcad.yml', 'ci/build_geometry_tools.py',
                     'ci/geometry_bundle.py', 'ci/geometry_profile.py', 'ci/native_geometry_smoke.py',
                     'ci/bundle.py', 'ci/common.py', 'ci/bext_checkpoint.py',
+                    'tests/test_geometry_tools.py', 'tests/test_bext_checkpoint.py',
                     '.github/workflows/build-brlcad-staged.yml', 'pins/sources.json']:
             # Avoid hidden output paths, which upload-artifact intentionally omits.
             stored = 'workflow/' + Path(rel).name if rel.startswith('.github/') else rel
