@@ -100,10 +100,17 @@ def collect_build_evidence(attempt, metadata):
                       or ('.cmake/api/v1/reply/' in file.as_posix() and file.suffix == '.json'))
             if not wanted:
                 continue
-            destination = metadata / 'stock-build-records' / label / rel
+            # upload-artifact excludes hidden paths.  Preserve the source
+            # .cmake file-API record under a visible evidence-only path so
+            # SHA256SUMS describes exactly what GitHub actually uploads.
+            evidence_rel = (Path('cmake-file-api', *rel.parts[1:])
+                            if rel.parts[0] == '.cmake' else rel)
+            destination = metadata / 'stock-build-records' / label / evidence_rel
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(file, destination)
-            rows.append({'build': label, 'path': rel.as_posix(), 'sha256': sha256(destination)})
+            rows.append({'build': label, 'path': rel.as_posix(),
+                         'evidence_path': evidence_rel.as_posix(),
+                         'sha256': sha256(destination)})
     write_json(metadata / 'stock-build-records.json', rows)
 
 
