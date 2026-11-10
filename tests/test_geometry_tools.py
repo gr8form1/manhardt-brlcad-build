@@ -52,6 +52,50 @@ class Toolkit(unittest.TestCase):
                 with self.subTest(value=value[-90:]), self.assertRaises(RuntimeError):
                     smoke.check_tetrahedron_step(p)
 
+    def test_full_pinned_step_schema_family_is_required(self):
+        # Build #8 compiled these targets but retained only three schema DSOs.
+        self.assertEqual(profile.SCHEMAS,
+                         ('ap203', 'ap203e2', 'ap214', 'ap242e1',
+                          'ap242e2', 'ap242e3', 'ap242e4'))
+        self.assertEqual(len(profile.SCHEMAS), len(set(profile.SCHEMAS)))
+        self.assertIn('ap242e4', profile.SCHEMAS)
+
+    def test_explicit_ap242e4_report_rejects_repairs_or_partial_results(self):
+        valid = {
+            'exit_status': 0,
+            'coverage': {'outcome': 'complete', 'geometry_written': 1,
+                         'geometry_skipped': 0},
+            'validation': {'invalid_breps': 0, 'repairs': 0,
+                           'inferred_curves': 0}
+        }
+        self.assertEqual(
+            smoke.verify_clean_tetrahedron_import_report(valid, 'e4')['repairs'], 0)
+        import copy
+        changes = (
+            ('exit_status', None, 3),
+            ('coverage', 'outcome', 'partial'),
+            ('coverage', 'geometry_written', 0),
+            ('coverage', 'geometry_skipped', 1),
+            ('validation', 'invalid_breps', 1),
+            ('validation', 'repairs', 1),
+            ('validation', 'inferred_curves', 1),
+        )
+        for category, field, value in changes:
+            report = copy.deepcopy(valid)
+            if field is None:
+                report[category] = value
+            else:
+                report[category][field] = value
+            with self.subTest(category=category, field=field):
+                with self.assertRaisesRegex(RuntimeError, 'without repair'):
+                    smoke.verify_clean_tetrahedron_import_report(report, 'e4')
+        import inspect
+        source = inspect.getsource(smoke.run_smoke)
+        self.assertIn("'--schema', 'ap242e4'", source)
+        self.assertIn("'--repair', 'none'", source)
+        self.assertIn("ap242e4-auto-probe.json", source)
+        self.assertIn("'automatic_selected_edition': 'NOT_PROVEN_BY_PUBLIC_FILE_SCHEMA'", source)
+
     def test_native_tetrahedron_top_selects_geometry_not_metadata(self):
         self.assertEqual(smoke.select_tetrahedron_top('_STEP_METADATA toolkit_tetra\n'),
                          'toolkit_tetra')
