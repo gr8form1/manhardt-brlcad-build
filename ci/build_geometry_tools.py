@@ -13,6 +13,7 @@ import traceback
 
 from common import Recorder, clean_environment, sha256, write_json
 from geometry_profile import BUILD_TARGETS, EXECUTABLES, SCHEMAS, cmake_source_components_arg
+from bext_checkpoint import create_checkpoint, restore_checkpoint
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = 'conv:libtclcad:libged:libgcv:libdm:libicv:libanalyze:libwdb:liboptical:librt:libbrep:libnmg:libbv:libbg:libbn:libbu:libpkg'
@@ -123,6 +124,11 @@ def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     require(event.get('repository', {}).get('private') is False, 'Public-source repository required')
     require(platform.machine() == 'x86_64', 'x64 runner required')
+    stage = os.environ.get('MANHARDT_BUILD_STAGE', 'all')
+    require(stage in ('all', 'bext', 'complete'), 'Unapproved build stage')
+    if stage != 'all':
+        require(os.environ.get('GITHUB_WORKFLOW') == 'Manhardt staged BRL-CAD schema closure',
+                'Staged operation requires reviewed workflow')
     out = ROOT / 'out';out.mkdir(exist_ok=False)
     metadata = out / 'evidence';metadata.mkdir()
     started = time.monotonic()
@@ -159,9 +165,10 @@ def main():
         controls = []
         for rel in ['.github/workflows/build-brlcad.yml', 'ci/build_geometry_tools.py',
                     'ci/geometry_bundle.py', 'ci/geometry_profile.py', 'ci/native_geometry_smoke.py',
-                    'ci/bundle.py', 'ci/common.py', 'pins/sources.json']:
+                    'ci/bundle.py', 'ci/common.py', 'ci/bext_checkpoint.py',
+                    '.github/workflows/build-brlcad-staged.yml', 'pins/sources.json']:
             # Avoid hidden output paths, which upload-artifact intentionally omits.
-            stored = 'workflow/build-brlcad.yml' if rel.startswith('.github/') else rel
+            stored = 'workflow/' + Path(rel).name if rel.startswith('.github/') else rel
             dest = metadata / 'control-source' / stored
             dest.parent.mkdir(parents=True, exist_ok=True);shutil.copyfile(ROOT / rel, dest)
             controls.append({'repository_path': rel, 'evidence_path': stored, 'sha256': sha256(dest)})
@@ -189,19 +196,45 @@ def main():
         verify_submodules(rec, bext, pins)
         snapshot(rec, brl, bext, metadata)
         ext_build, ext_output = attempt / 'build/bext', attempt / 'private/bext-output'
-        rec.run([cmake, '-S', bext, '-B', ext_build, '-G', 'Unix Makefiles',
-                 '-DCMAKE_BUILD_TYPE=Release', f'-DCMAKE_INSTALL_PREFIX={ext_output}',
-                 f'-DBRLCAD_COMPONENTS={COMPONENTS}', '-DENABLE_ALL=OFF', '-DUSE_BRLCAD=ON',
-                 '-DUSE_BRLCAD_EXTRA=ON', '-DUSE_GDAL=OFF', '-DUSE_QT=OFF', '-DUSE_TCL=OFF',
-                 '-DUSE_APPLESEED=OFF', '-DUSE_OSPRAY=OFF'])
-        shutil.copyfile(ext_build / 'CMakeCache.txt', metadata / 'bext-CMakeCache.txt')
-        verify_submodules(rec, bext, pins)
-        rec.run(['/usr/bin/time', '-v', '-o', metadata / 'bext-build-rusage.txt',
-                 cmake, '--build', ext_build, '--parallel', '1'])
+        if stage == 'complete':
+            # Dependency files must come from the SAME reviewed workflow run.
+            stage_input = Path(os.environ.get('MANHARDT_BEXT_INPUT', ''))
+            require(stage_input.is_dir() and stage_input.resolve().is_relative_to(ROOT.resolve()),
+                    'Missing or unapproved staged dependency artifact directory')
+            producer = json.loads((stage_input/'RESULT.json').read_text())
+            require(producer.get('disposition') == 'BEXT_STAGE_READY' and
+                    producer.get('run', {}).get('GITHUB_REPOSITORY') == os.environ['GITHUB_REPOSITORY'] and
+                    producer.get('run', {}).get('GITHUB_SHA') == os.environ['GITHUB_SHA'] and
+                    producer.get('run', {}).get('GITHUB_RUN_ID') == os.environ['GITHUB_RUN_ID'] and
+                    producer.get('run', {}).get('GITHUB_RUN_ATTEMPT') == os.environ['GITHUB_RUN_ATTEMPT'],
+                    'Staged dependency producer does not match this run and commit')
+            receipt = restore_checkpoint(stage_input, ext_output, pins, cmake, attempt)
+            write_json(metadata/'bext-stage-receipt.json', receipt)
+            shutil.copytree(stage_input/'evidence', metadata/'bext-stage-producer-evidence')
+            shutil.copyfile(stage_input/'RESULT.json', metadata/'bext-stage-producer-result.json')
+        else:
+            rec.run([cmake, '-S', bext, '-B', ext_build, '-G', 'Unix Makefiles',
+                     '-DCMAKE_BUILD_TYPE=Release', f'-DCMAKE_INSTALL_PREFIX={ext_output}',
+                     f'-DBRLCAD_COMPONENTS={COMPONENTS}', '-DENABLE_ALL=OFF', '-DUSE_BRLCAD=ON',
+                     '-DUSE_BRLCAD_EXTRA=ON', '-DUSE_GDAL=OFF', '-DUSE_QT=OFF', '-DUSE_TCL=OFF',
+                     '-DUSE_APPLESEED=OFF', '-DUSE_OSPRAY=OFF'])
+            shutil.copyfile(ext_build / 'CMakeCache.txt', metadata / 'bext-CMakeCache.txt')
+            verify_submodules(rec, bext, pins)
+            rec.run(['/usr/bin/time', '-v', '-o', metadata / 'bext-build-rusage.txt',
+                     cmake, '--build', ext_build, '--parallel', '1'])
         require((ext_output / 'install').is_dir() and (ext_output / 'noinstall').is_dir(),
                 'Missing private dependency output')
-        require((ext_output / 'bext-install-manifest.json').is_file(), 'Dependency install manifest absent')
-        shutil.copyfile(ext_output / 'bext-install-manifest.json', metadata / 'bext-install-manifest.json')
+        require((ext_output / 'bext-install-manifest.json').is_file(),
+                'Dependency install manifest absent')
+        shutil.copyfile(ext_output / 'bext-install-manifest.json',
+                        metadata / 'bext-install-manifest.json')
+        if stage == 'bext':
+            checkpoint = create_checkpoint(ext_output, out, pins, cmake, attempt)
+            result.update({'disposition': 'BEXT_STAGE_READY', 'bext_checkpoint': checkpoint,
+                           'work_qualification': 'NOT_PERFORMED',
+                           'lenovo_release': 'NOT_QUALIFIED_NOT_AUTHORIZED'})
+            return_code = 0
+            return return_code
         build = attempt / 'build/brlcad'
         query = build / '.cmake/api/v1/query';query.mkdir(parents=True)
         (query / 'codemodel-v2').touch()
