@@ -110,6 +110,26 @@ def check_tetrahedron_native_surfaces(output):
     return 4
 
 
+
+def verify_clean_tetrahedron_import_report(report, label):
+    """Require a complete and unrepaired import of the public tetrahedron."""
+    if (report.get('exit_status') != 0 or
+            report.get('coverage', {}).get('outcome') != 'complete' or
+            report.get('coverage', {}).get('geometry_written') != 1 or
+            report.get('coverage', {}).get('geometry_skipped') != 0 or
+            report.get('validation', {}).get('invalid_breps') != 0 or
+            report.get('validation', {}).get('repairs') != 0 or
+            report.get('validation', {}).get('inferred_curves') != 0):
+        raise RuntimeError(f'{label}: public tetrahedron did not import completely without repair')
+    return {
+        'exit_status': report['exit_status'],
+        'coverage': report['coverage']['outcome'],
+        'geometry_written': report['coverage']['geometry_written'],
+        'repairs': report['validation']['repairs'],
+        'invalid_breps': report['validation']['invalid_breps'],
+    }
+
+
 def run_smoke(rec, runtime, brl_source, destination):
     runtime, brl_source, destination = map(Path, (runtime, brl_source, destination))
     destination.mkdir(parents=True, exist_ok=False)
@@ -181,5 +201,64 @@ def run_smoke(rec, runtime, brl_source, destination):
               'independent_export_check': independent,
               'nonclaims': ['SPK16 geometry fidelity', 'unchanged-source validity',
                            'curved-surface accuracy', 'acoustic qualification']}
+    # AP242 editions share the long-form FILE_SCHEMA identifier.  This is
+    # therefore a public, explicitly selected e4 converter smoke test, NOT
+    # evidence that FILE_SCHEMA alone identifies the OEM file's AP242 edition.
+    e4_step = destination/'tetra-ap242e4.step'
+    e4_step.write_text(text.replace('AP242e2', 'AP242e4').replace(
+        'toolkit_tetra.step', 'tetra-ap242e4.step'))
+    check_tetrahedron_step(e4_step)
+    e4_db = destination/'tetra-ap242e4.g'
+    e4_import_path = destination/'ap242e4-import.json'
+    run([runtime/'bin/step-g', '--strict', '--repair', 'none',
+         '--schema', 'ap242e4', '--report', e4_import_path,
+         '-o', e4_db, e4_step])
+    e4_import = verify_clean_tetrahedron_import_report(
+        json.loads(e4_import_path.read_text()), 'Explicit AP242e4 import')
+    e4_breps = run([runtime/'bin/gsh', e4_db, 'search', '.', '-type', 'brep']).split()
+    if len(e4_breps) != 1 or not re.fullmatch(r'[A-Za-z0-9_.-]+', e4_breps[0]):
+        raise RuntimeError('AP242e4 native import lacks exactly one B-rep')
+    e4_valid = run([runtime/'bin/gsh', e4_db, 'brep', e4_breps[0], 'valid'])
+    e4_solid = run([runtime/'bin/gsh', e4_db, 'brep', e4_breps[0], 'solid'])
+    if 'brep is valid' not in e4_valid or 'brep is solid' not in e4_solid:
+        raise RuntimeError('AP242e4 native B-rep validity or solidity missing')
+    e4_native = check_tetrahedron_native_vertices(
+        run([runtime/'bin/gsh', e4_db, 'brep', e4_breps[0], 'info', 'V']))
+    e4_planes = check_tetrahedron_native_surfaces(
+        run([runtime/'bin/gsh', e4_db, 'brep', e4_breps[0], 'info', 'S']))
+    e4_export = destination/'tetra-ap242e4-roundtrip.step'
+    run([runtime/'bin/g-step', '--strict', '--schema', 'ap242e4',
+         '--output-units', 'mm', '--angle-units', 'radian',
+         '--report', destination/'ap242e4-export.json', '-o', e4_export, e4_db])
+    e4_independent = check_tetrahedron_step(e4_export)
+    e4_reimport_path = destination/'ap242e4-reimport.json'
+    run([runtime/'bin/step-g', '-D', '--strict', '--repair', 'none',
+         '--schema', 'ap242e4', '--report', e4_reimport_path, e4_export])
+    e4_reimport = verify_clean_tetrahedron_import_report(
+        json.loads(e4_reimport_path.read_text()), 'Explicit AP242e4 reimport')
+    # Exercise automatic edition choice without asserting which edition was
+    # chosen: the STEP file's standard FILE_SCHEMA token is shared by editions.
+    auto_report_path = destination/'ap242e4-auto-probe.json'
+    run([runtime/'bin/step-g', '-D', '--strict', '--repair', 'none',
+         '--report', auto_report_path, e4_step])
+    auto_probe = verify_clean_tetrahedron_import_report(
+        json.loads(auto_report_path.read_text()), 'Automatic AP242 import')
+    result['ap242e4_schema_smoke'] = {
+        'status': 'EXPLICIT_EDITION4_PUBLIC_TETRAHEDRON_PASS',
+        'schema_edition': 'ap242e4',
+        'input_sha256': sha256(e4_step),
+        'native_database_sha256': sha256(e4_db),
+        'export_sha256': sha256(e4_export),
+        'import': e4_import, 'reimport': e4_reimport,
+        'native_vertices_and_volume': e4_native,
+        'native_plane_count': e4_planes,
+        'independent_export_check': e4_independent,
+        'automatic_selection_probe': auto_probe,
+        'automatic_selected_edition': 'NOT_PROVEN_BY_PUBLIC_FILE_SCHEMA',
+        'nonclaims': ['OEM AP242 edition identification',
+                      'SPK16 or SEAS C16 geometry fidelity',
+                      'curved-surface equivalence', 'acoustic qualification']
+    }
+
     write_json(destination/'RESULT.json', result)
     return result
