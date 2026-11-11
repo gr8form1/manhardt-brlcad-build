@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Archive existing GitHub Build #9 artifact without compilation.
+"""Archive existing authenticated GitHub P1 native-build artifact without recompilation.
 Hard-coded source identity; no manufacturer CAD; read-only input.
-All segment artifacts are <512 MB connector cap.
+All segment artifacts are below the 512 MB connector cap.
 """
 import hashlib
 import json
@@ -13,10 +13,12 @@ import tarfile
 import urllib.request
 
 REPO = 'gr8form1/manhardt-brlcad-build'
-RUN_ID = 42818003613
-HEAD_SHA = 'abb68993bf916b6374dd35086608431b5a18e93d'
-ARTIFACT_ID = 13777669407
-ARTIFACT_NAME = 'manhardt-geometry-tools-42818003613-1'
+RUN_ID = 42897744666
+HEAD_SHA = '78856c27dbf6e17b2f660e455d2bd7d431a8dabd'
+ARTIFACT_ID = 13815662301
+ARTIFACT_NAME = 'manhardt-geometry-tools-42897744666-1'
+SOURCE_GITHUB_DIGEST = 'sha256:f79c820ee8ff18bc2f2328b090f4525dfe73fea311b174b770ec3c1ac5f75e47'
+SOURCE_GITHUB_BYTES = 825200137
 CHUNK_SIZE = 240000000
 MAX_CHUNKS = 20
 
@@ -44,19 +46,30 @@ def get_api(path):
 def main():
     insist(os.environ.get('GITHUB_REPOSITORY') == REPO, 'Unexpected repository')
     insist(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'Only manual dispatch')
-    insist(os.environ.get('GITHUB_REF') == 'refs/heads/feature/reusable-geometry-toolkit', 'Wrong branch')
+    insist(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'Only initial invocation authorized')
+    insist(os.environ.get('GITHUB_REF') == 'refs/heads/feature/p1-run42897744666-custody', 'Wrong branch')
     run = get_api('/actions/runs/' + str(RUN_ID))
     insist(run['head_sha'] == HEAD_SHA and run['status'] == 'completed' and run['conclusion'] == 'success'
-           and run['head_branch'] == 'feature/reusable-geometry-toolkit'
-           and run['event'] == 'workflow_dispatch', 'Build #9 identity/status mismatch')
+           and run['head_branch'] == 'feature/step-export-p1-native-candidate'
+           and run['event'] == 'workflow_dispatch', 'P1 source run identity/status mismatch')
     source_artifact = get_api('/actions/artifacts/' + str(ARTIFACT_ID))
+    insist(source_artifact['digest'] == SOURCE_GITHUB_DIGEST and
+           source_artifact['size_in_bytes'] == SOURCE_GITHUB_BYTES,
+           'P1 GitHub artifact digest/byte-count mismatch')
     insist(source_artifact['name'] == ARTIFACT_NAME and not source_artifact['expired']
            and source_artifact['workflow_run']['id'] == RUN_ID,
-           'Source artifact ID/name/run mismatch or expired')
+           'P1 source artifact ID/name/run mismatch or expired')
     root = Path('source-artifact').resolve()
     insist(root.is_dir() and not root.is_symlink(), 'Missing downloaded source artifact')
     insist((root / 'RESULT.json').is_file()
            and (root / 'SHA256SUMS').is_file(), 'Missing required original evidence files')
+    source_result = json.loads((root / 'RESULT.json').read_text())
+    insist(source_result.get('run', {}).get('GITHUB_REPOSITORY') == REPO and
+           source_result.get('run', {}).get('GITHUB_SHA') == HEAD_SHA and
+           source_result.get('run', {}).get('GITHUB_RUN_ID') == str(RUN_ID) and
+           source_result.get('run', {}).get('GITHUB_RUN_ATTEMPT') == '1' and
+           source_result.get('disposition') == 'GEOMETRY_TOOLKIT_CANDIDATE',
+           'P1 source RESULT identity/disposition mismatch')
     paths = sorted(root.rglob('*'))
     members = []
     for p in paths:
@@ -69,10 +82,10 @@ def main():
                             'sha256': checksum(p)})
         else:
             insist(p.is_dir(), 'Unexpected non-directory member')
-    insist(len(members) >= 5, 'Suspiciously small Build #9 output')
+    insist(len(members) >= 5, 'Suspiciously small P1 output')
     out = Path('custody')
     out.mkdir(exist_ok=False)
-    master = out / 'build9-source-artifact.tar'
+    master = out / 'p1-source-artifact.tar'
     with tarfile.open(master, 'w', format=tarfile.PAX_FORMAT) as archive:
         for p in paths:
             archive.add(p, arcname='source-artifact/' + p.relative_to(root).as_posix(), recursive=False)
@@ -85,7 +98,7 @@ def main():
                 break
             insist(index < MAX_CHUNKS,
                    'Unanticipated >4.8 GB source artifact: avoid incomplete custody')
-            path = out / ('build9-part-%03d.bin' % index)
+            path = out / ('p1-part-%03d.bin' % index)
             path.write_bytes(block)
             chunks.append({'part': index, 'name': path.name,
                            'size': len(block), 'sha256': checksum(path)})
@@ -98,7 +111,7 @@ def main():
                 h.update(b)
     insist(h.hexdigest() == master_hash, 'Chunk reconstruction hash mismatch')
     receipt = {
-       'format': 'MANHARDT_GITHUB_BUILD9_CUSTODY_SEGMENTS/1',
+       'format': 'MANHARDT_GITHUB_P1_CUSTODY_SEGMENTS/1',
        'source_repository': REPO, 'source_run': RUN_ID,
        'source_commit': HEAD_SHA,
        'source_artifact_id': ARTIFACT_ID,
@@ -114,7 +127,7 @@ def main():
     }
     (out/'CUSTODY_MANIFEST.json').write_text(json.dumps(receipt, indent=2, sort_keys=True)+'\n')
     (out/'README.txt').write_text(
-      'Retrieve every build9-custody-part-NNN artifact, verify CUSTODY_MANIFEST.json SHA-256s, '
+      'Retrieve every p1-custody-part-NNN artifact, verify CUSTODY_MANIFEST.json SHA-256s, '
       'concatenate files in numeric order, check tar_sha256, extract; then independently validate '
       'RESULT.json, SHA256SUMS and every runtime/component hash. Workflow success is not geometry qualification.\n')
     with open(os.environ['GITHUB_OUTPUT'],'a') as f:
