@@ -19,7 +19,7 @@ ARTIFACT_ID = 13815662301
 ARTIFACT_NAME = 'manhardt-geometry-tools-42897744666-1'
 SOURCE_GITHUB_DIGEST = 'sha256:f79c820ee8ff18bc2f2328b090f4525dfe73fea311b174b770ec3c1ac5f75e47'
 SOURCE_GITHUB_BYTES = 825200137
-CHUNK_SIZE = 240000000
+CHUNK_SIZE = 80000000
 MAX_CHUNKS = 20
 
 def insist(value, explanation):
@@ -47,7 +47,7 @@ def main():
     insist(os.environ.get('GITHUB_REPOSITORY') == REPO, 'Unexpected repository')
     insist(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'Only manual dispatch')
     insist(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'Only initial invocation authorized')
-    insist(os.environ.get('GITHUB_REF') == 'refs/heads/feature/p1-run42897744666-custody', 'Wrong branch')
+    insist(os.environ.get('GITHUB_REF') == 'refs/heads/feature/p1-run42897744666-drive-80m', 'Wrong branch')
     run = get_api('/actions/runs/' + str(RUN_ID))
     insist(run['head_sha'] == HEAD_SHA and run['status'] == 'completed' and run['conclusion'] == 'success'
            and run['head_branch'] == 'feature/step-export-p1-native-candidate'
@@ -97,7 +97,7 @@ def main():
             if not block:
                 break
             insist(index < MAX_CHUNKS,
-                   'Unanticipated >4.8 GB source artifact: avoid incomplete custody')
+                   'Unanticipated oversized source artifact: avoid incomplete custody')
             path = out / ('p1-part-%03d.bin' % index)
             path.write_bytes(block)
             chunks.append({'part': index, 'name': path.name,
