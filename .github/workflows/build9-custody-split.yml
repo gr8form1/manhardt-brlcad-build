@@ -1,17 +1,17 @@
-name: Manhardt P1 run 42897744666 custody split (no rebuild)
+name: Manhardt P1 Drive-80MB custody split (no rebuild)
 'on':
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: manhardt-p1-run42897744666-custody-split
+  group: manhardt-p1-run42897744666-drive80-custody-split
   cancel-in-progress: false
 jobs:
   split:
     if: >-
       github.repository == 'gr8form1/manhardt-brlcad-build' &&
-      github.ref == 'refs/heads/feature/p1-run42897744666-custody' &&
+      github.ref == 'refs/heads/feature/p1-run42897744666-drive-80m' &&
       github.event.repository.private == false &&
       github.event_name == 'workflow_dispatch' &&
       github.run_attempt == 1
@@ -41,190 +41,190 @@ jobs:
         if: ${{ steps.split.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-manifest-${{ github.run_id }}
+          name: p1drive80-custody-manifest-${{ github.run_id }}
           path: |
             custody/CUSTODY_MANIFEST.json
             custody/README.txt
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 000
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 0 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-000-${{ github.run_id }}
+          name: p1drive80-custody-part-000-${{ github.run_id }}
           path: custody/p1-part-000.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 001
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 1 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-001-${{ github.run_id }}
+          name: p1drive80-custody-part-001-${{ github.run_id }}
           path: custody/p1-part-001.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 002
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 2 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-002-${{ github.run_id }}
+          name: p1drive80-custody-part-002-${{ github.run_id }}
           path: custody/p1-part-002.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 003
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 3 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-003-${{ github.run_id }}
+          name: p1drive80-custody-part-003-${{ github.run_id }}
           path: custody/p1-part-003.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 004
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 4 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-004-${{ github.run_id }}
+          name: p1drive80-custody-part-004-${{ github.run_id }}
           path: custody/p1-part-004.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 005
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 5 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-005-${{ github.run_id }}
+          name: p1drive80-custody-part-005-${{ github.run_id }}
           path: custody/p1-part-005.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 006
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 6 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-006-${{ github.run_id }}
+          name: p1drive80-custody-part-006-${{ github.run_id }}
           path: custody/p1-part-006.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 007
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 7 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-007-${{ github.run_id }}
+          name: p1drive80-custody-part-007-${{ github.run_id }}
           path: custody/p1-part-007.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 008
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 8 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-008-${{ github.run_id }}
+          name: p1drive80-custody-part-008-${{ github.run_id }}
           path: custody/p1-part-008.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 009
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 9 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-009-${{ github.run_id }}
+          name: p1drive80-custody-part-009-${{ github.run_id }}
           path: custody/p1-part-009.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 010
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 10 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-010-${{ github.run_id }}
+          name: p1drive80-custody-part-010-${{ github.run_id }}
           path: custody/p1-part-010.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 011
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 11 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-011-${{ github.run_id }}
+          name: p1drive80-custody-part-011-${{ github.run_id }}
           path: custody/p1-part-011.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 012
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 12 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-012-${{ github.run_id }}
+          name: p1drive80-custody-part-012-${{ github.run_id }}
           path: custody/p1-part-012.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 013
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 13 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-013-${{ github.run_id }}
+          name: p1drive80-custody-part-013-${{ github.run_id }}
           path: custody/p1-part-013.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 014
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 14 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-014-${{ github.run_id }}
+          name: p1drive80-custody-part-014-${{ github.run_id }}
           path: custody/p1-part-014.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 015
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 15 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-015-${{ github.run_id }}
+          name: p1drive80-custody-part-015-${{ github.run_id }}
           path: custody/p1-part-015.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 016
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 16 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-016-${{ github.run_id }}
+          name: p1drive80-custody-part-016-${{ github.run_id }}
           path: custody/p1-part-016.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 017
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 17 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-017-${{ github.run_id }}
+          name: p1drive80-custody-part-017-${{ github.run_id }}
           path: custody/p1-part-017.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 018
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 18 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-018-${{ github.run_id }}
+          name: p1drive80-custody-part-018-${{ github.run_id }}
           path: custody/p1-part-018.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
       - name: Preserve segmented source artifact part 019
         if: ${{ steps.split.outcome == 'success' && fromJSON(steps.split.outputs.count) > 19 }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: p1-custody-part-019-${{ github.run_id }}
+          name: p1drive80-custody-part-019-${{ github.run_id }}
           path: custody/p1-part-019.bin
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           compression-level: 0
