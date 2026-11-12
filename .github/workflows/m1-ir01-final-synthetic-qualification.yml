@@ -1,0 +1,118 @@
+name: M1 IR-01 final synthetic containment qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Run bounded adversarial synthetic qualification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          python3.12 - <<'PY' 2>&1 | tee evidence/qualification.log
+          import os, pathlib, subprocess, time, json, signal, sys
+          from datetime import datetime,timezone
+          evidence=pathlib.Path("evidence")
+          unit="m1-ir01-final-"+os.environ["GITHUB_RUN_ID"]+"-"+os.environ.get("GITHUB_RUN_ATTEMPT","1")
+          service=unit+".service"
+          record={"run_id":os.environ["GITHUB_RUN_ID"],"unit":service,"status":"INCOMPLETE","checks":{}}
+          def run(args,timeout=8,check=True):
+              return subprocess.run(args,text=True,capture_output=True,timeout=timeout,check=check)
+          def sudo(*args,timeout=8):
+              return run(["sudo","-n",*args],timeout=timeout).stdout.strip()
+          def prop(name):
+              return sudo("systemctl","show",service,"-p",name,"--value")
+          def save():
+              record["completed_utc"]=datetime.now(timezone.utc).isoformat()
+              (evidence/"result.json").write_text(json.dumps(record,indent=2,sort_keys=True)+"\n")
+          launched=False
+          cg=None
+          start=time.monotonic()
+          try:
+              assert sys.version_info[:2]==(3,12)
+              sudo("-v")
+              # No packages, no repository checkout, no IR-01 source, no host service edits.
+              # Parent and child both ignore SIGTERM, testing cgroup SIGKILL fallback.
+              code='import signal,subprocess,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);subprocess.Popen(["/usr/bin/python3.12","-c","import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(90)"]);time.sleep(90)'
+              args=["sudo","-n","systemd-run","--unit="+unit,
+                    "--property=User="+str(os.getuid()),
+                    "--property=MemoryAccounting=yes",
+                    "--property=MemoryMax=1073741824",
+                    "--property=MemorySwapMax=0",
+                    "--property=TasksMax=32",
+                    "--property=RuntimeMaxSec=3",
+                    "--property=TimeoutStopSec=1",
+                    "--property=KillMode=control-group",
+                    "--property=SendSIGKILL=yes",
+                    "/usr/bin/python3.12","-c",code]
+              result=run(args,timeout=8)
+              launched=True
+              print("UNIT_STARTED",service,result.stdout.strip(),flush=True)
+              for _ in range(40):
+                  cg=prop("ControlGroup")
+                  if cg.startswith("/system.slice/"+service) and pathlib.Path("/sys/fs/cgroup"+cg+"/cgroup.procs").exists():
+                      pids=pathlib.Path("/sys/fs/cgroup"+cg+"/cgroup.procs").read_text().split()
+                      if len(pids)>=2:break
+                  time.sleep(.1)
+              else:raise RuntimeError("parent and descendant not both observed")
+              path=pathlib.Path("/sys/fs/cgroup"+cg)
+              mem=(path/"memory.max").read_text().strip()
+              swap=(path/"memory.swap.max").read_text().strip()
+              record["checks"]["dedicated_cgroup"]=cg
+              record["checks"]["observed_process_count"]=len(pids)
+              record["checks"]["memory_max"]=mem
+              record["checks"]["swap_max"]=swap
+              record["checks"]["kill_mode"]=prop("KillMode")
+              record["checks"]["send_sigkill"]=prop("SendSIGKILL")
+              record["checks"]["runtime"]=prop("RuntimeMaxUSec")
+              record["checks"]["stop_timeout"]=prop("TimeoutStopUSec")
+              print("OBSERVED",json.dumps(record["checks"],sort_keys=True),flush=True)
+              assert mem=="1073741824" and swap=="0"
+              assert record["checks"]["kill_mode"]=="control-group"
+              assert record["checks"]["send_sigkill"]=="yes"
+              assert record["checks"]["runtime"]=="3s"
+              assert record["checks"]["stop_timeout"]=="1s"
+              # A 12-second independent watchdog bounds observation of a 3s systemd expiry.
+              deadline=start+12
+              while time.monotonic()<deadline:
+                  state=prop("ActiveState")
+                  remaining=pathlib.Path("/sys/fs/cgroup"+cg+"/cgroup.procs")
+                  if state in ("failed","inactive") and (not remaining.exists() or not remaining.read_text().strip()):
+                      break
+                  time.sleep(.15)
+              else:raise RuntimeError("independent 12-second watchdog: unit/descendants not stopped")
+              elapsed=time.monotonic()-start
+              record["checks"]["expiry_observed_seconds"]=round(elapsed,3)
+              record["checks"]["final_state"]=state
+              record["status"]="PASS_SYNTHETIC"
+              print("PASS: bounded runtime expiry and resistant descendant termination",round(elapsed,3),flush=True)
+              print("LIMITATION: this does not independently prove a 600-second whole-invocation ceiling",flush=True)
+          except Exception as exc:
+              record["status"]="FAIL"
+              record["error"]=repr(exc)
+              print("FAIL",repr(exc),flush=True)
+              raise
+          finally:
+              if launched:
+                  try:
+                      sudo("systemctl","stop",service,timeout=5)
+                  except Exception as exc:print("CLEANUP_STOP_NOTE",repr(exc),flush=True)
+                  try:
+                      sudo("systemctl","kill","--kill-who=all","--signal=SIGKILL",service,timeout=5)
+                  except Exception as exc:print("CLEANUP_KILL_NOTE",repr(exc),flush=True)
+                  try:sudo("systemctl","reset-failed",service,timeout=5)
+                  except Exception as exc:print("CLEANUP_RESET_NOTE",repr(exc),flush=True)
+              save()
+          PY
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-ir01-final-synthetic-qualification-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
