@@ -1,0 +1,53 @@
+name: M1 IR-01 privileged capability discovery
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read-only privileged capability and systemd discovery
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo 'M1 IR-01 PRIVILEGED CAPABILITY DISCOVERY ONLY'
+          echo 'No sudo commands executed; no service, cgroup, controller or source changes'
+          echo '=== current user ==='
+          id
+          echo '=== sudo binary and policy (nonexecuting) ==='
+          command -v sudo || true
+          if command -v sudo >/dev/null 2>&1; then
+            stat -c '%n %a %u:%g' "$(command -v sudo)" || true
+            ls -ld /etc/sudoers /etc/sudoers.d 2>/dev/null || true
+          fi
+          echo '=== systemd capabilities ==='
+          command -v systemd-run || true
+          command -v systemctl || true
+          systemd-run --version 2>&1 | head -n 3 || true
+          echo '=== cgroup v2 mount and membership ==='
+          grep ' - cgroup2 ' /proc/self/mountinfo || true
+          cat /proc/self/cgroup
+          echo '=== effective cgroup metadata ==='
+          python3.12 - <<'PY'
+          import os,pathlib,stat
+          root=pathlib.Path('/sys/fs/cgroup')
+          membership=next((x.split('::',1)[1] for x in pathlib.Path('/proc/self/cgroup').read_text().splitlines() if x.startswith('0::')),None)
+          print('membership',membership)
+          if membership is not None:
+              here=root/membership.lstrip('/')
+              for p in (root,here,here.parent):
+                  try:
+                      st=p.stat()
+                      print('directory',str(p),'mode',oct(stat.S_IMODE(st.st_mode)),'uid',st.st_uid,'gid',st.st_gid,'writable_as_runner',os.access(p,os.W_OK))
+                      for f in ('cgroup.controllers','cgroup.subtree_control','cgroup.type','memory.max','memory.swap.max'):
+                          q=p/f
+                          if q.exists():
+                              try: print('file',f,'mode',oct(stat.S_IMODE(q.stat().st_mode)),'value',q.read_text().strip()[:200])
+                              except OSError as e: print('file',f,'read_error',str(e))
+                  except OSError as e: print('directory_error',str(p),str(e))
+          PY
+          echo '=== kernel security indicators ==='
+          grep -E '^(Cap(Inh|Prm|Eff|Bnd|Amb)|NoNewPrivs|Seccomp):' /proc/self/status || true
+          echo 'DISCOVERY COMPLETE — no privileged operations attempted'
