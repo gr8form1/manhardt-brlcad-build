@@ -1,0 +1,97 @@
+name: M1 IR-01 consolidated bounded environment qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Bounded systemd cgroup and descendant containment qualification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export LC_ALL=C
+          echo 'M1 IR-01 ENVIRONMENT QUALIFICATION ONLY; NO IR-01 SOURCE OR TESTS'
+          echo 'Synthetic low-resource processes only; no packages; no runner-service changes'
+          sudo -n -v
+          test "$(python3.12 -c 'import sys;print(sys.version_info[:2]==(3,12))')" = True
+          command -v systemd-run
+          command -v systemctl
+          uid="$(id -u)"
+          unit="m1-ir01-qual-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          unit="${unit//[^a-zA-Z0-9-]/-}"
+          unit="${unit:0:63}"
+          service="${unit}.service"
+          temp="$(mktemp -d)"
+          chmod 700 "$temp"
+          started=0
+          cleanup() {
+            rc=$?
+            trap - EXIT
+            if [ "$started" = 1 ]; then
+              sudo -n systemctl stop "$service" >/dev/null 2>&1 || true
+              sudo -n systemctl kill --kill-who=all --signal=SIGKILL "$service" >/dev/null 2>&1 || true
+              sudo -n systemctl reset-failed "$service" >/dev/null 2>&1 || true
+            fi
+            rm -rf -- "$temp"
+            echo "CLEANUP_COMPLETE; exit_status=$rc"
+            exit "$rc"
+          }
+          trap cleanup EXIT
+          echo "QUAL_UNIT=$service"
+          echo '=== start isolated low-resource transient service ==='
+          # This synthetic child sleeps; systemd creates a separate service cgroup and applies limits.
+          sudo -n systemd-run --unit="$unit" --property=User="$uid" \
+            --property=MemoryAccounting=yes \
+            --property=MemoryMax=1073741824 \
+            --property=MemorySwapMax=0 \
+            --property=TasksMax=32 \
+            --property=RuntimeMaxSec=600 \
+            --property=TimeoutStopSec=2 \
+            --property=KillMode=control-group \
+            --property=SendSIGKILL=yes \
+            /usr/bin/python3.12 -c 'import subprocess,time;subprocess.Popen(["/usr/bin/sleep","120"]);time.sleep(120)'
+          started=1
+          echo '=== wait for active unit and descendant ==='
+          ready=0
+          for i in $(seq 1 30); do
+            state="$(sudo -n systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+            cg="$(sudo -n systemctl show "$service" -p ControlGroup --value 2>/dev/null || true)"
+            if [ "$state" = active ] && [ -n "$cg" ] && [ -f "/sys/fs/cgroup$cg/cgroup.procs" ]; then
+              count="$(cat "/sys/fs/cgroup$cg/cgroup.procs" | wc -l)"
+              if [ "$count" -ge 2 ]; then ready=1; break; fi
+            fi
+            sleep 0.2
+          done
+          test "$ready" = 1 || { echo 'FAIL: isolated service/descendant not established'; exit 1; }
+          echo "ISOLATED_CGROUP=$cg"
+          case "$cg" in /system.slice/"$service") ;; *) echo 'FAIL: unexpected cgroup';exit 1;; esac
+          echo '=== independently read kernel-enforced limits ==='
+          actual_mem="$(cat "/sys/fs/cgroup$cg/memory.max")"
+          actual_swap="$(cat "/sys/fs/cgroup$cg/memory.swap.max")"
+          echo "memory.max=$actual_mem memory.swap.max=$actual_swap"
+          test "$actual_mem" = 1073741824 || { echo 'FAIL: memory.max mismatch'; exit 1; }
+          test "$actual_swap" = 0 || { echo 'FAIL: memory.swap.max mismatch'; exit 1; }
+          echo '=== inspect configured runtime and termination ==='
+          sudo -n systemctl show "$service" -p RuntimeMaxUSec -p TimeoutStopUSec -p KillMode -p SendSIGKILL -p MemoryMax -p MemorySwapMax -p MainPID -p ControlGroup
+          test "$(sudo -n systemctl show "$service" -p RuntimeMaxUSec --value)" = 10min || { echo 'FAIL: RuntimeMaxSec not 600'; exit 1; }
+          test "$(sudo -n systemctl show "$service" -p KillMode --value)" = control-group || exit 1
+          test "$(sudo -n systemctl show "$service" -p SendSIGKILL --value)" = yes || exit 1
+          echo '=== bounded termination/descendant cleanup probe ==='
+          before="$(cat "/sys/fs/cgroup$cg/cgroup.procs" | wc -l)"
+          echo "PROCESSES_BEFORE_STOP=$before"
+          test "$before" -ge 2 || exit 1
+          sudo -n systemctl stop "$service"
+          for i in $(seq 1 30); do
+            if [ ! -d "/sys/fs/cgroup$cg" ] || [ "$(cat "/sys/fs/cgroup$cg/cgroup.procs" 2>/dev/null | wc -l)" -eq 0 ]; then break; fi
+            sleep 0.2
+          done
+          if [ -d "/sys/fs/cgroup$cg" ] && [ -s "/sys/fs/cgroup$cg/cgroup.procs" ]; then
+            echo 'FAIL: descendants remain in unit'; exit 1
+          fi
+          echo 'PASS: service and descendant terminated; unit cgroup empty or removed'
+          echo 'PASS: 1GiB and zero swap enforced by cgroup v2; 600s configured'
+          echo 'LIMITATION: 600s actual expiry and external hard ceiling not directly tested'
+          echo 'M1 IR-01 SCIENTIFIC TESTS NOT EXECUTED'
