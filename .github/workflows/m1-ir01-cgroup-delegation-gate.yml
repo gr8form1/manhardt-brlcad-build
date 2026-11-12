@@ -1,0 +1,59 @@
+name: M1 IR-01 bounded cgroup delegation qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify-delegation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect delegation and safely attempt isolated child creation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo 'M1 IR-01 CGROUP DELEGATION GATE ONLY — NO IR-01 SOURCE OR TESTS'
+          echo 'No sudo, no parent controller changes, no workload probes'
+          python3.12 - <<'PY'
+          import os, pathlib, stat, sys
+          base=pathlib.Path('/sys/fs/cgroup')
+          line=next((x for x in pathlib.Path('/proc/self/cgroup').read_text().splitlines() if x.startswith('0::')),None)
+          if line is None or not base.is_dir():
+              print('STOP: unified cgroup mount or membership missing');sys.exit(0)
+          membership=line.split('::',1)[1]
+          path=base/membership.lstrip('/')
+          print('membership:',membership)
+          print('effective uid/gid:',os.geteuid(),os.getegid())
+          for f in ('cgroup.controllers','cgroup.subtree_control','cgroup.procs','cgroup.type','memory.max','memory.swap.max'):
+              p=path/f
+              try:
+                  st=p.stat()
+                  value=p.read_text().strip() if f!='cgroup.procs' else '[not displayed]'
+                  print(f,'mode={stat.S_IMODE(st.st_mode):04o} uid={st.st_uid} gid={st.st_gid} value={value}')
+              except OSError as e: print(f,'unavailable:',str(e))
+          if not os.access(path,os.W_OK):
+              print('STOP: runner has no write access to its own cgroup directory; no creation attempted')
+              sys.exit(0)
+          # A dedicated child is created only inside the runner's current cgroup.
+          child=path/('m1-ir01-qualification-'+str(os.getpid()))
+          try:
+              child.mkdir(mode=0o700)
+              print('CHILD_CREATED:',child)
+              for f in ('memory.max','memory.swap.max','cgroup.procs','cgroup.kill'):
+                  p=child/f
+                  try:
+                      st=p.stat()
+                      print('child',f,'mode',oct(stat.S_IMODE(st.st_mode)),'owner',st.st_uid)
+                  except OSError as e: print('child',f,'unavailable:',e)
+          except OSError as e:
+              print('STOP: dedicated child creation denied:',repr(e))
+          finally:
+              if child.exists():
+                  try:
+                      child.rmdir()
+                      print('CHILD_REMOVED: yes')
+                  except OSError as e:
+                      print('STOP: child cleanup failed:',repr(e))
+                      sys.exit(1)
+          print('END: no controller values changed; no processes migrated; no M1 tests')
+          PY
