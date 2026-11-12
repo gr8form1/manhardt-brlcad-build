@@ -1,0 +1,44 @@
+name: M1 IR-01 runner read-only discovery
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/m1-ir01-runner-discovery.yml'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read-only host and containment discovery
+        shell: bash
+        run: |
+          set -u
+          echo 'M1 IR-01 DISCOVERY ONLY: no source, probes, or tests'
+          echo '=== identity ==='
+          id
+          uname -a
+          echo '=== Python ==='
+          for p in python3.12 python3 python; do command -v "$p" || true; "$p" --version 2>&1 || true; done
+          echo '=== cgroup mounts ==='
+          grep -E 'cgroup| /sys/fs/cgroup ' /proc/self/mountinfo || true
+          echo '=== cgroup membership ==='
+          cat /proc/self/cgroup
+          echo '=== cgroup mount and files ==='
+          if [ -d /sys/fs/cgroup ]; then
+            stat -c '%n %F %a %u:%g' /sys/fs/cgroup || true
+            for f in cgroup.controllers cgroup.subtree_control cgroup.procs memory.max memory.swap.max memory.current memory.swap.current; do
+              if [ -e "/sys/fs/cgroup/$f" ]; then
+                stat -c '%n %a %u:%g' "/sys/fs/cgroup/$f" || true
+                cat "/sys/fs/cgroup/$f" 2>&1 || true
+              fi
+            done
+          else echo 'cgroup directory absent'; fi
+          echo '=== effective capabilities ==='
+          grep -E '^(Cap(Inh|Prm|Eff|Bnd|Amb)|NoNewPrivs):' /proc/self/status || true
+          echo '=== supervision utilities ==='
+          for p in timeout setsid systemd-run unshare prlimit; do command -v "$p" || true; done
+          echo '=== runner metadata ==='
+          printf 'RUNNER_OS=%s RUNNER_ARCH=%s\n' "${RUNNER_OS:-}" "${RUNNER_ARCH:-}"
+          echo '=== discovery complete: no qualification claimed ==='
