@@ -1,0 +1,40 @@
+name: M1 IR-01 systemd feasibility preflight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read-only sudo and systemd feasibility preflight
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo 'M1 IR-01 SYSTEMD FEASIBILITY PREFLIGHT ONLY'
+          echo 'No transient units, cgroup writes, source retrieval, or scientific tests'
+          echo '=== identity ==='
+          id
+          echo '=== noninteractive sudo eligibility ==='
+          if sudo -n -v </dev/null; then
+            echo 'SUDO_NONINTERACTIVE=YES'
+          else
+            echo 'SUDO_NONINTERACTIVE=NO'
+          fi
+          echo '=== systemd manager read-only query ==='
+          if systemctl --system show -p Version -p ControlGroup -p SystemState --no-pager 2>&1; then
+            echo 'SYSTEM_MANAGER_QUERY=YES'
+          else
+            echo 'SYSTEM_MANAGER_QUERY=NO'
+          fi
+          echo '=== systemd transient service property documentation ==='
+          for prop in MemoryMax MemorySwapMax RuntimeMaxSec KillMode SendSIGKILL TimeoutStopSec Delegate; do
+            echo "PROPERTY_CANDIDATE=$prop"
+          done
+          echo '=== systemd-run available options ==='
+          systemd-run --help 2>&1 | grep -E -- '--property|--wait|--collect|--unit|--uid|--scope|--service-type' || true
+          echo '=== cgroup state (read only) ==='
+          grep ' - cgroup2 ' /proc/self/mountinfo || true
+          cat /proc/self/cgroup
+          echo 'PREFLIGHT COMPLETE — no transient unit created; no enforcement qualified'
