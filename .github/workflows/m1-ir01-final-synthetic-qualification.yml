@@ -1,6 +1,9 @@
 name: M1 IR-01 final synthetic containment qualification
 on:
   workflow_dispatch:
+concurrency:
+  group: m1-ir01-synthetic-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -29,15 +32,38 @@ jobs:
           def save():
               record["completed_utc"]=datetime.now(timezone.utc).isoformat()
               (evidence/"result.json").write_text(json.dumps(record,indent=2,sort_keys=True)+"\n")
-          launched=False
+          attempted=False
           cg=None
+          failures=[]
+          cleanup=[]
+          probe_seen=False
           start=time.monotonic()
           try:
               assert sys.version_info[:2]==(3,12)
               sudo("-v")
               # No packages, no repository checkout, no IR-01 source, no host service edits.
               # Parent and child both ignore SIGTERM, testing cgroup SIGKILL fallback.
-              code='import signal,subprocess,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);subprocess.Popen(["/usr/bin/python3.12","-c","import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(90)"]);time.sleep(90)'
+              # A synthetic, source-free restriction probe; no protected paths are changed.
+              code='''
+          import json,os,pathlib,signal,socket,subprocess,time
+          checks={}
+          try:
+              fd=os.open('/etc/hostname',os.O_WRONLY)
+              os.close(fd);checks['etc_write_denied']=False
+          except PermissionError:checks['etc_write_denied']=True
+          try:
+              sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM);sock.close();checks['inet_socket_denied']=False
+          except OSError:checks['inet_socket_denied']=True
+          tmp=pathlib.Path('/tmp/m1-ir01-synthetic-probe')
+          try:tmp.write_text('ok');checks['tmp_writable']=tmp.read_text()=='ok';tmp.unlink()
+          except OSError:checks['tmp_writable']=False
+          print('IR01_PROBE '+json.dumps(checks,sort_keys=True),flush=True)
+          signal.signal(signal.SIGTERM,signal.SIG_IGN)
+          subprocess.Popen(['/usr/bin/python3.12','-c','import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(90)'])
+          time.sleep(90)'''
+              import textwrap
+              code=textwrap.dedent(code)
+
               args=["sudo","-n","systemd-run","--unit="+unit,
                     "--property=User="+str(os.getuid()),
                     "--property=MemoryAccounting=yes",
@@ -48,9 +74,16 @@ jobs:
                     "--property=TimeoutStopSec=1",
                     "--property=KillMode=control-group",
                     "--property=SendSIGKILL=yes",
+                    "--property=NoNewPrivileges=yes",
+                    "--property=ProtectSystem=strict",
+                    "--property=ProtectHome=yes",
+                    "--property=PrivateTmp=yes",
+                    "--property=RestrictAddressFamilies=AF_UNIX",
+                    "--property=IPAddressDeny=any",
+                    "--property=CapabilityBoundingSet=",
                     "/usr/bin/python3.12","-c",code]
+              attempted=True  # Set BEFORE submission; ambiguous timeout still triggers cleanup.
               result=run(args,timeout=8)
-              launched=True
               print("UNIT_STARTED",service,result.stdout.strip(),flush=True)
               for _ in range(40):
                   cg=prop("ControlGroup")
@@ -70,6 +103,16 @@ jobs:
               record["checks"]["send_sigkill"]=prop("SendSIGKILL")
               record["checks"]["runtime"]=prop("RuntimeMaxUSec")
               record["checks"]["stop_timeout"]=prop("TimeoutStopUSec")
+              for key,expected in {"NoNewPrivileges":"yes","ProtectSystem":"strict",
+                                   "ProtectHome":"yes","PrivateTmp":"yes",
+                                   "IPAddressDeny":"any"}.items():
+                  observed=prop(key)
+                  record["checks"]["sandbox_"+key]=observed
+                  assert observed==expected,(key,observed,expected)
+              families=prop("RestrictAddressFamilies")
+              record["checks"]["sandbox_RestrictAddressFamilies"]=families
+              assert families.strip()=="AF_UNIX",families
+              record["checks"]["process_ids"]=[int(pid) for pid in pids]
               print("OBSERVED",json.dumps(record["checks"],sort_keys=True),flush=True)
               assert mem=="1073741824" and swap=="0"
               assert record["checks"]["kill_mode"]=="control-group"
@@ -88,25 +131,53 @@ jobs:
               elapsed=time.monotonic()-start
               record["checks"]["expiry_observed_seconds"]=round(elapsed,3)
               record["checks"]["final_state"]=state
+              journal=sudo("journalctl","-u",service,"--no-pager","-o","cat",timeout=8)
+              (evidence/"service-journal.txt").write_text(journal+"\n")
+              import re
+              matches=re.findall(r"^IR01_PROBE (\{[^\n]+\})$",journal,re.M)
+              assert len(matches)==1,("probe records",len(matches))
+              probe=json.loads(matches[0]);record["checks"]["restriction_probe"]=probe
+              assert probe=={"etc_write_denied":True,"inet_socket_denied":True,"tmp_writable":True},probe
               record["status"]="PASS_SYNTHETIC"
               print("PASS: bounded runtime expiry and resistant descendant termination",round(elapsed,3),flush=True)
               print("LIMITATION: this does not independently prove a 600-second whole-invocation ceiling",flush=True)
-          except Exception as exc:
+          except BaseException as exc:
               record["status"]="FAIL"
               record["error"]=repr(exc)
+              failures.append("qualification: "+repr(exc))
               print("FAIL",repr(exc),flush=True)
-              raise
           finally:
-              if launched:
+              # Even a timed-out or ambiguous submission may have created the unit.
+              if attempted:
+                  for action,command in [
+                      ("stop",["systemctl","stop",service]),
+                      ("kill",["systemctl","kill","--kill-who=all","--signal=SIGKILL",service]),
+                      ("reset_failed",["systemctl","reset-failed",service])]:
+                      try:
+                          r=run(["sudo","-n",*command],timeout=5,check=False)
+                          cleanup.append({"action":action,"returncode":r.returncode,
+                                          "stdout":r.stdout[-2000:],"stderr":r.stderr[-2000:]})
+                          # A nonzero result is recorded, not silently discarded.
+                          # Nonzero for an already-absent unit is diagnostic; final quiescence decides.
+                      except BaseException as exc:
+                          cleanup.append({"action":action,"error":repr(exc)})
+                          failures.append("cleanup "+action+": "+repr(exc))
                   try:
-                      sudo("systemctl","stop",service,timeout=5)
-                  except Exception as exc:print("CLEANUP_STOP_NOTE",repr(exc),flush=True)
-                  try:
-                      sudo("systemctl","kill","--kill-who=all","--signal=SIGKILL",service,timeout=5)
-                  except Exception as exc:print("CLEANUP_KILL_NOTE",repr(exc),flush=True)
-                  try:sudo("systemctl","reset-failed",service,timeout=5)
-                  except Exception as exc:print("CLEANUP_RESET_NOTE",repr(exc),flush=True)
+                      state=prop("ActiveState")
+                      cg_now=prop("ControlGroup")
+                      remaining=(pathlib.Path("/sys/fs/cgroup")/(cg_now or cg or "").lstrip("/")/"cgroup.procs") if (cg_now or cg) else None
+                      procs=remaining.read_text().split() if remaining and remaining.exists() else []
+                      record["checks"]["cleanup_final_state"]=state
+                      record["checks"]["cleanup_remaining_pids"]=procs
+                      if state not in ("inactive","failed","") or procs:
+                          failures.append("cleanup: workload not quiescent")
+                  except BaseException as exc:
+                      failures.append("cleanup verification: "+repr(exc))
+              record["cleanup"]=cleanup
+              record["failures"]=failures
+              if failures:record["status"]="FAIL"
               save()
+          if failures:raise SystemExit("Synthetic qualification failed; inspect evidence/result.json")
           PY
       - name: Preserve qualification evidence
         if: always()
@@ -114,5 +185,5 @@ jobs:
         with:
           name: m1-ir01-final-synthetic-qualification-${{ github.run_id }}
           path: evidence/
-          if-no-files-found: warn
-          retention-days: 30
+          if-no-files-found: error
+          retention-days: 7
