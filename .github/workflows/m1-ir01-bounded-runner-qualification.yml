@@ -1,0 +1,602 @@
+name: M1 IR-01 bounded non-scientific runner qualification (DO NOT DISPATCH WITHOUT FOUNDER AUTHORIZATION)
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Private gr8form1/manhardt-numerical staging run containing artifact m1-ir01-private-source
+        required: true
+      source_archive_sha256:
+        description: Founder-approved SHA-256 of M1_IR01_EXECUTION_SOURCE_v6.zip
+        required: true
+      expected_public_commit:
+        description: Exact reviewed public-repository commit containing this workflow and support files
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: m1-ir01-runner-qualification-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PRIVATE_SOURCE_REPOSITORY: gr8form1/manhardt-numerical
+      PRIVATE_SOURCE_ARTIFACT: m1-ir01-private-source
+    steps:
+      - name: Arm root-owned original-T0 stop/quiescence/timeout actions before acquisition or preparation
+        id: original_t0
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          t0_ns=$(/usr/bin/python3.12 -c 'import time; print(time.monotonic_ns())')
+          test -n "$t0_ns"
+          control="/run/ma-m1-ir01-deadline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          evidence="$RUNNER_TEMP/m1_evidence/DEADLINE_CONTROL"
+          gate_control="$RUNNER_TEMP/m1_gate_control"
+          mkdir -p "$evidence" "$gate_control"
+          chmod 700 "$gate_control"
+          if sudo -n test -e "$control"; then echo "deadline control path already exists" >&2; exit 2; fi
+          sudo -n install -d -o root -g root -m 0755 "$control"
+          candidate="$RUNNER_TEMP/m1_deadline_action.$$.sh"
+          action="$control/deadline_action.sh"
+          cat > "$candidate" <<'SH'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          mode="$1"; control="$2"; t0_ns="$3"; expected_run_id="$4"; expected_run_attempt="$5"; target_s="$6"; expected_repo="$7"
+          target_ns=$(/usr/bin/python3.12 - "$t0_ns" "$target_s" <<'PY'
+          import sys
+          print(int(sys.argv[1]) + int(float(sys.argv[2])*1_000_000_000))
+          PY
+          )
+          now_ns=$(/usr/bin/python3.12 -c 'import time; print(time.monotonic_ns())')
+          if (( now_ns < target_ns )); then
+            wait_s=$(/usr/bin/python3.12 - "$now_ns" "$target_ns" <<'PY'
+          import sys
+          print(max(0.0,(int(sys.argv[2])-int(sys.argv[1]))/1e9))
+          PY
+            )
+            sleep "$wait_s"
+          fi
+          registration="$control/scientific_unit.json"
+          unit=""; registration_status="missing"; active="unregistered"; action_rc=0
+          if [[ -f "$registration" && ! -L "$registration" ]]; then
+            read -r owner group mode_bits < <(stat -Lc '%u %g %a' "$registration")
+            if [[ "$owner" == 0 && "$group" == 0 && "$mode_bits" =~ ^[0-7]+$ && $((8#$mode_bits & 0222)) -eq 0 ]]; then
+              if unit=$(/usr/bin/python3.12 - "$registration" "$expected_run_id" "$expected_run_attempt" "$expected_repo" <<'PY'
+          import json,re,sys
+          p,run_id,attempt,repo=sys.argv[1:]
+          obj=json.load(open(p))
+          expected={'schema':'MA-M1-SCIENTIFIC-UNIT-REGISTRATION-v1','run_id':run_id,'run_attempt':attempt,'execution_repository':repo}
+          if any(obj.get(k)!=v for k,v in expected.items()): raise SystemExit(2)
+          unit=obj.get('unit','')
+          if re.fullmatch(r'ma-m1-'+re.escape(run_id)+r'-'+re.escape(attempt)+r'-[0-9a-f]{8}\.service',unit) is None: raise SystemExit(3)
+          print(unit)
+          PY
+              ); then registration_status="verified"; else unit=""; registration_status="invalid"; fi
+            else
+              registration_status="invalid_permissions"
+            fi
+          elif [[ -e "$registration" ]]; then
+            registration_status="invalid_type"
+          fi
+          if [[ -n "$unit" ]]; then active=$(systemctl is-active "$unit" 2>/dev/null || true); fi
+          control_request_pre_call_ns=""; control_command_return_ns=""; command_invoked=false
+          case "$mode" in
+            stop)
+              marker="STOP_INITIATED.json"
+              if [[ -n "$unit" && "$active" != "inactive" && "$active" != "failed" && "$active" != "unknown" ]]; then
+                control_request_pre_call_ns=$(/usr/bin/python3.12 -c 'import time; print(time.monotonic_ns())')
+                command_invoked=true
+                systemctl stop --no-block "$unit" || action_rc=$?
+                control_command_return_ns=$(/usr/bin/python3.12 -c 'import time; print(time.monotonic_ns())')
+              fi
+              ;;
+            quiescence)
+              marker="QUIESCENCE_TARGET.json"
+              if [[ -n "$unit" && "$active" != "inactive" && "$active" != "failed" && "$active" != "unknown" ]]; then
+                control_request_pre_call_ns=$(/usr/bin/python3.12 -c 'import time; print(time.monotonic_ns())')
+                command_invoked=true
+                systemctl kill --kill-who=all --signal=SIGKILL "$unit" || action_rc=$?
+                control_command_return_ns=$(/usr/bin/python3.12 -c 'import time; print(time.monotonic_ns())')
+              fi
+              ;;
+            timeout)
+              marker="OPERATIONAL_TIMEOUT.json"
+              ;;
+            *) exit 64 ;;
+          esac
+          /usr/bin/python3.12 - "$control/$marker" "$mode" "$t0_ns" "$target_s" "$unit" "$registration_status" "$active" "$action_rc" "$command_invoked" "$control_request_pre_call_ns" "$control_command_return_ns" <<'PY'
+          import json,sys,time
+          p,mode,t0,target,unit,reg,active,rc,invoked,request_ns,return_ns=sys.argv[1:]
+          # Exclusive open is the marker-creation event; sample immediately after it succeeds.
+          f=open(p,'x')
+          marker_created_ns=time.monotonic_ns()
+          obj={'schema':'MA-M1-DEADLINE-ACTION-v2','mode':mode,'t0_monotonic_ns':t0,'target_s':float(target),
+               'registered_unit':unit or None,'registration_status':reg,'observed_active_state':active,
+               'action_returncode':int(rc),'control_command_invoked':invoked=='true',
+               'control_request_pre_call_monotonic_ns':request_ns or None,
+               'control_command_return_monotonic_ns':return_ns or None,
+               'marker_created_observed_monotonic_ns':str(marker_created_ns),
+               'marker_created_observed_elapsed_s':(marker_created_ns-int(t0))/1e9,
+               'absolute_stop_guarantee':False}
+          if mode=='stop':
+              obj['stop_request_pre_call_monotonic_ns']=request_ns or None
+              obj['stop_command_return_monotonic_ns']=return_ns or None
+          json.dump(obj,f,indent=2,sort_keys=True);f.write('\n');f.flush();f.close()
+          PY
+          SH
+          chmod 700 "$candidate"
+          sudo -n install -o root -g root -m 0755 "$candidate" "$action"
+          rm -f "$candidate"
+          read -r action_uid action_gid action_mode < <(sudo -n stat -Lc '%u %g %a' "$action")
+          test "$action_uid" = 0 -a "$action_gid" = 0
+          test $((8#$action_mode & 0022)) -eq 0
+          action_sha=$(sudo -n sha256sum "$action" | awk '{print $1}')
+          test -n "$action_sha"
+
+          ARM_LEAD_S=2.0
+          arm_timer() {
+            local key="$1" target="$2" base="$3" mode="$4" now delay next after target_us min_us rec
+            now=$(/usr/bin/python3.12 -c 'import time; print(time.monotonic_ns())')
+            delay=$(/usr/bin/python3.12 - "$t0_ns" "$now" "$target" "$ARM_LEAD_S" <<'PY'
+          import sys
+          t0,now,target,lead=int(sys.argv[1]),int(sys.argv[2]),float(sys.argv[3]),float(sys.argv[4])
+          d=target-lead-(now-t0)/1e9
+          if d <= 0: raise SystemExit(2)
+          print(f'{d:.6f}s')
+          PY
+            )
+            sudo -n systemd-run --quiet --unit="$base" --on-active="$delay" --timer-property=AccuracySec=1ms \
+              "$action" "$mode" "$control" "$t0_ns" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$target" "$GITHUB_REPOSITORY"
+            sudo -n systemctl is-active --quiet "$base.timer"
+            next=$(sudo -n systemctl show "$base.timer" -p NextElapseUSecMonotonic --value)
+            after=$(/usr/bin/python3.12 -c 'import time; print(time.monotonic_ns())')
+            rec="$RUNNER_TEMP/${key}_timer_schedule.json"
+            /usr/bin/python3.12 - "$rec" "$key" "$base.timer" "$t0_ns" "$after" "$target" "$ARM_LEAD_S" "$next" <<'PY'
+          import json,sys
+          p,key,unit,t0,now,target,lead,next_value=sys.argv[1:]
+          t0=int(t0);now=int(now);target=float(target);lead=float(lead)
+          if not next_value.isdigit(): raise SystemExit('unverifiable NextElapseUSecMonotonic')
+          next_us=int(next_value);target_us=t0//1000+int(target*1_000_000);min_us=t0//1000+int((target-lead-1.0)*1_000_000)
+          if now >= t0+int(target*1e9): raise SystemExit('timer arming completed after original-T0 target')
+          if next_us<=0 or next_us>target_us or next_us<min_us: raise SystemExit('timer effective monotonic schedule not bound to original T0 target')
+          obj={'key':key,'timer_unit':unit,'target_s':target,'target_monotonic_usec':target_us,
+               'next_elapse_monotonic_usec':next_us,'verified_not_late':True,'arm_lead_s':lead,
+               'verified_at_monotonic_ns':now}
+          with open(p,'x') as f:json.dump(obj,f,sort_keys=True);f.write('\n')
+          PY
+          }
+          stop_base="ma-m1-t0-stop-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          quiet_base="ma-m1-t0-quiescence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          timeout_base="ma-m1-t0-timeout-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          arm_timer stop 540 "$stop_base" stop
+          arm_timer quiescence 570 "$quiet_base" quiescence
+          arm_timer timeout 600 "$timeout_base" timeout
+
+          armed_tmp="$RUNNER_TEMP/DEADLINE_ARMED.json"
+          /usr/bin/python3.12 - "$armed_tmp" "$t0_ns" "$action" "$action_sha" "$action_uid" "$action_gid" "$action_mode" \
+            "$RUNNER_TEMP/stop_timer_schedule.json" "$RUNNER_TEMP/quiescence_timer_schedule.json" "$RUNNER_TEMP/timeout_timer_schedule.json" <<'PY'
+          import json,sys
+          p,t0,action,action_sha,uid,gid,mode,*schedule_paths=sys.argv[1:]
+          schedules={}
+          for q in schedule_paths:
+              rec=json.load(open(q));schedules[rec['key']]=rec
+          obj={'schema':'MA-M1-ORIGINAL-T0-DEADLINE-v2','t0_monotonic_ns':t0,
+               'targets_s':{'stop':540.0,'quiescence':570.0,'timeout':600.0},
+               'timer_units':{k:v['timer_unit'] for k,v in schedules.items()},'timer_schedules':schedules,
+               'deadline_action':{'path':action,'sha256':action_sha,'owner_uid':int(uid),'group_gid':int(gid),'mode':mode,
+                                  'ordinary_runner_write_protected':True,'root_authority_out_of_scope':True},
+               'unit_registration':{'path':str(__import__('pathlib').Path(action).parent/'scientific_unit.json'),
+                                    'required_schema':'MA-M1-SCIENTIFIC-UNIT-REGISTRATION-v1','root_owned_read_only_before_use':True},
+               'absolute_stop_guarantee':False,'owner':'systemd/PID1 transient timers with root-owned action'}
+          with open(p,'x') as f:json.dump(obj,f,indent=2,sort_keys=True);f.write('\n')
+          PY
+          sudo -n install -o root -g root -m 0444 "$armed_tmp" "$control/DEADLINE_ARMED.json"
+          cp "$armed_tmp" "$evidence/DEADLINE_ARMED.json"
+          rm -f "$armed_tmp" "$RUNNER_TEMP/stop_timer_schedule.json" "$RUNNER_TEMP/quiescence_timer_schedule.json" "$RUNNER_TEMP/timeout_timer_schedule.json"
+          echo "t0_ns=$t0_ns" >> "$GITHUB_OUTPUT"
+          echo "control_dir=$control" >> "$GITHUB_OUTPUT"
+          echo "gate_control_dir=$gate_control" >> "$GITHUB_OUTPUT"
+      - name: Check out public execution repository (workflow/support only)
+        uses: actions/checkout@v4
+      - name: Verify exact reviewed support and qualification harness identities
+        shell: bash
+        env:
+          EXPECTED_PUBLIC_COMMIT: ${{ inputs.expected_public_commit }}
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_SHA" = "$EXPECTED_PUBLIC_COMMIT"
+          test "$(sha256sum support/supervisor.py | awk '{print $1}')" = 506958c3519699c4a1f992309790d9887f8a33776cf8689b405fa3e8b5cf0a32
+          test "$(sha256sum support/gate.py | awk '{print $1}')" = 3b45d0db78c24468c08739003983ae22f1e57a2b485a3a7e62a8ec0c7c9b1977
+          test "$(sha256sum support/custody.py | awk '{print $1}')" = 28e858d9ec14b6bec642938db8afbf257f19a2108d36892abf9cdf06468f1ab6
+          test "$(sha256sum support/admit_private_source.py | awk '{print $1}')" = caa24e503adc01e300a0cf4d6346b60335afeac3485afed2bd207689b252b4a5
+          test "$(sha256sum support/m1_runner_qualification.py | awk '{print $1}')" = dc3856694ebd062d91f8aef34a1482337e2ee64be926eeac732e9a09be716235
+      - name: Verify private repository metadata and identify source artifact
+        id: artifact_meta
+        env:
+          GH_TOKEN: ${{ secrets.M1_PRIVATE_ARTIFACT_READ_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$GH_TOKEN"
+          repo_meta=$(gh api repos/$PRIVATE_SOURCE_REPOSITORY)
+          test "$(jq -r .id <<<"$repo_meta")" = 1434752390
+          test "$(jq -r .full_name <<<"$repo_meta")" = gr8form1/manhardt-numerical
+          test "$(jq -r .private <<<"$repo_meta")" = true
+          meta=$(gh api repos/$PRIVATE_SOURCE_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts)
+          count=$(jq --arg n "$PRIVATE_SOURCE_ARTIFACT" '[.artifacts[]|select(.name==$n and .expired==false)]|length' <<<"$meta")
+          test "$count" -eq 1
+          id=$(jq -r --arg n "$PRIVATE_SOURCE_ARTIFACT" '.artifacts[]|select(.name==$n and .expired==false)|.id' <<<"$meta")
+          echo "artifact_id=$id" >> "$GITHUB_OUTPUT"
+      - name: Download private source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: m1-ir01-private-source
+          path: private_source_inbox
+          github-token: ${{ secrets.M1_PRIVATE_ARTIFACT_READ_TOKEN }}
+          repository: gr8form1/manhardt-numerical
+          run-id: ${{ inputs.source_run_id }}
+      - name: Authenticate and admit exact source archive
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_archive_sha256 }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_ID: ${{ steps.artifact_meta.outputs.artifact_id }}
+        run: |
+          set -Eeuo pipefail
+          mapfile -t files < <(find private_source_inbox -maxdepth 1 -type f -name '*.zip' -print)
+          test "${#files[@]}" -eq 1
+          private_diag="$RUNNER_TEMP/m1_private_diagnostics"
+          mkdir -p "$private_diag"
+          chmod 700 "$private_diag"
+          set +e
+          python3.12 support/admit_private_source.py \
+            --archive "${files[0]}" --expected-sha256 "$SOURCE_SHA" \
+            --destination "$RUNNER_TEMP/m1_admitted" --receipt "$RUNNER_TEMP/source_admission.json" \
+            --source-repository "$PRIVATE_SOURCE_REPOSITORY" --source-repository-id 1434752390 --artifact-name "$PRIVATE_SOURCE_ARTIFACT" \
+            --artifact-id "$ARTIFACT_ID" --source-run-id "$SOURCE_RUN_ID" \
+            --t0-monotonic-ns "${{ steps.original_t0.outputs.t0_ns }}" \
+            >"$private_diag/admission.stdout" 2>"$private_diag/admission.stderr"
+          admission_rc=$?
+          set -e
+          if [ "$admission_rc" -ne 0 ]; then
+            echo "PRIVATE_SOURCE_ADMISSION_STATUS=FAIL returncode=$admission_rc; diagnostics retained runner-private" >&2
+            exit 2
+          fi
+          echo 'PRIVATE_SOURCE_ADMISSION_STATUS=PASS; raw helper output retained runner-private'
+          rm -rf private_source_inbox
+      - name: Prepare exactly pinned dependency environment (runtime compatibility still requires runner qualification)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3.12 -m venv "$RUNNER_TEMP/m1venv"
+          "$RUNNER_TEMP/m1venv/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps \
+            pip==26.3 setuptools==84.2.1 packaging==26.3
+          "$RUNNER_TEMP/m1venv/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps wheel==0.48.0
+          "$RUNNER_TEMP/m1venv/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps \
+            numpy==2.3.5 scipy==1.17.0 numba==0.65.1 llvmlite==0.47.0 meshio==5.3.5 mpmath==1.3.0 \
+            rich==15.0.0 markdown-it-py==4.3.0 pygments==2.21.0 mdurl==0.1.2
+          git clone --filter=blob:none https://github.com/bempp/bempp-cl.git "$RUNNER_TEMP/bempp-cl"
+          git -C "$RUNNER_TEMP/bempp-cl" checkout --detach a1eaaef9f96b9dd3d7c56b076740e06852a6e1c0
+          test "$(git -C "$RUNNER_TEMP/bempp-cl" rev-parse HEAD)" = a1eaaef9f96b9dd3d7c56b076740e06852a6e1c0
+          "$RUNNER_TEMP/m1venv/bin/python" -m pip install --disable-pip-version-check --no-build-isolation --no-deps "$RUNNER_TEMP/bempp-cl"
+      - name: Record exact compatible wheel identities without source fallback
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/wheel_inventory"
+          "$RUNNER_TEMP/m1venv/bin/python" -m pip download --disable-pip-version-check --only-binary=:all: --no-deps -d "$RUNNER_TEMP/wheel_inventory" \
+            pip==26.3 setuptools==84.2.1 packaging==26.3 wheel==0.48.0 numpy==2.3.5 scipy==1.17.0 numba==0.65.1 llvmlite==0.47.0 \
+            meshio==5.3.5 mpmath==1.3.0 rich==15.0.0 markdown-it-py==4.3.0 pygments==2.21.0 mdurl==0.1.2
+          sha256sum "$RUNNER_TEMP"/wheel_inventory/*.whl | sed "s#$RUNNER_TEMP/wheel_inventory/##" | sort > "$RUNNER_TEMP/m1_evidence/WHEEL_SHA256.txt"
+          accepted_pyproject_blob_id=$(python3.12 -c 'import json,sys;print(json.load(open(sys.argv[1]))["bempp_cl"]["pyproject_blob_sha"])' "$RUNNER_TEMP/m1_admitted/M1/dependency.lock")
+          observed_pyproject_blob_id=$(git -C "$RUNNER_TEMP/bempp-cl" hash-object pyproject.toml)
+          test "$observed_pyproject_blob_id" = "$accepted_pyproject_blob_id"
+          printf '%s\n' "$observed_pyproject_blob_id" > "$RUNNER_TEMP/m1_evidence/BEMPP_PYPROJECT_GIT_BLOB_ID.txt"
+          sha256sum "$RUNNER_TEMP/bempp-cl/pyproject.toml" | awk '{print $1}' > "$RUNNER_TEMP/m1_evidence/BEMPP_PYPROJECT_FILE_SHA256_DIAGNOSTIC.txt"
+          git -C "$RUNNER_TEMP/bempp-cl" rev-parse HEAD > "$RUNNER_TEMP/m1_evidence/BEMPP_COMMIT.txt"
+      - name: Preserve admitted-source receipt metadata only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cp "$RUNNER_TEMP/source_admission.json" "$RUNNER_TEMP/m1_evidence/SOURCE_ADMISSION_RECEIPT.json"
+      - name: Run one bounded non-scientific runner qualification fixture
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3.12 support/m1_runner_qualification.py \
+            --supervisor "$GITHUB_WORKSPACE/support/supervisor.py" \
+            --gate "$GITHUB_WORKSPACE/support/gate.py" \
+            --source-dir "$RUNNER_TEMP/m1_admitted/M1" \
+            --source-admission-receipt "$RUNNER_TEMP/source_admission.json" \
+            --python "$RUNNER_TEMP/m1venv/bin/python" \
+            --bempp-checkout "$RUNNER_TEMP/bempp-cl" \
+            --t0-monotonic-ns "${{ steps.original_t0.outputs.t0_ns }}" \
+            --deadline-control-dir "${{ steps.original_t0.outputs.control_dir }}" \
+            --gate-control-dir "${{ steps.original_t0.outputs.gate_control_dir }}" \
+            --evidence-root "$RUNNER_TEMP/m1_evidence"
+      - name: Reconcile workload/control processes, collect deadline records, then clean qualification-only state
+        id: bounded_cleanup
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          export LC_ALL=C
+          evidence="$RUNNER_TEMP/m1_evidence"
+          deadline_evidence="$evidence/DEADLINE_CONTROL"
+          mkdir -p "$deadline_evidence"
+          # Deterministic reconstruction: do not depend on outputs from a step that may
+          # itself have failed before publishing them.
+          control="/run/ma-m1-ir01-deadline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          registration="$control/scientific_unit.json"
+          cleanup_unresolved=0
+          unit=""
+          registration_status="missing"
+          cg_before=""
+          cg_after=""
+          service_show_rc_after=-1
+          active_after="UNREADABLE"
+          cgroup_readback_status_after="UNREADABLE"
+          procs_after=-1
+          populated_after="unknown"
+          control_pids_before=0
+          control_pids_after=0
+
+          for f in DEADLINE_ARMED.json STOP_INITIATED.json QUIESCENCE_TARGET.json OPERATIONAL_TIMEOUT.json; do
+            if sudo -n test -f "$control/$f"; then sudo -n cat "$control/$f" > "$deadline_evidence/$f"; fi
+          done
+
+          if sudo -n test -f "$registration"; then
+            reg_copy="$RUNNER_TEMP/m1_cleanup_registration.json"
+            sudo -n cat "$registration" > "$reg_copy"
+            if unit=$(python3.12 - "$reg_copy" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_REPOSITORY" <<'PY'
+          import json,re,sys
+          p,run_id,attempt,repo=sys.argv[1:]
+          try: obj=json.load(open(p))
+          except Exception: raise SystemExit(2)
+          expected={'schema':'MA-M1-SCIENTIFIC-UNIT-REGISTRATION-v1','run_id':run_id,'run_attempt':attempt,'execution_repository':repo}
+          if any(obj.get(k)!=v for k,v in expected.items()): raise SystemExit(3)
+          unit=obj.get('unit','')
+          if re.fullmatch(r'ma-m1-'+re.escape(run_id)+r'-'+re.escape(attempt)+r'-[0-9a-f]{8}\.service',unit) is None: raise SystemExit(4)
+          print(unit)
+          PY
+            ); then
+              registration_status="verified"
+              cp "$reg_copy" "$deadline_evidence/SCIENTIFIC_UNIT_REGISTRATION.json"
+            else
+              registration_status="invalid"
+              unit=""
+              cleanup_unresolved=1
+            fi
+          elif sudo -n test -e "$registration"; then
+            registration_status="invalid_type"
+            cleanup_unresolved=1
+          fi
+
+          service_containment_snapshot() {
+            local u="$1" show_out="" show_rc=0 active="" cg="" cg_status="UNREADABLE" count=-1 populated="unknown"
+            show_out=$(sudo -n systemctl show "$u" -p ActiveState -p ControlGroup 2>/dev/null) || show_rc=$?
+            if [ "$show_rc" -eq 0 ]; then
+              active=$(printf '%s\n' "$show_out" | awk -F= '$1=="ActiveState"{print $2;exit}')
+              cg=$(printf '%s\n' "$show_out" | awk -F= '$1=="ControlGroup"{print substr($0,index($0,"=")+1);exit}')
+              if [ -z "$cg" ]; then
+                cg_status="NO_CONTROL_GROUP_REPORTED"
+                count=0
+                populated=0
+              elif [ ! -e "/sys/fs/cgroup$cg" ]; then
+                cg_status="REMOVED"
+                count=0
+                populated=0
+              elif [ -d "/sys/fs/cgroup$cg" ] && [ -r "/sys/fs/cgroup$cg/cgroup.procs" ] && [ -r "/sys/fs/cgroup$cg/cgroup.events" ]; then
+                count=$(wc -l < "/sys/fs/cgroup$cg/cgroup.procs")
+                populated=$(awk '$1=="populated"{print $2;found=1} END{if(!found)print "unknown"}' "/sys/fs/cgroup$cg/cgroup.events")
+                if [ "$populated" = 0 ] || [ "$populated" = 1 ]; then cg_status="READABLE"; else cg_status="UNREADABLE"; fi
+              else
+                cg_status="UNREADABLE"
+              fi
+            else
+              active="UNREADABLE"
+              cg_status="UNREADABLE"
+            fi
+            printf '%s|%s|%s|%s|%s|%s\n' "$show_rc" "$active" "$cg" "$cg_status" "$count" "$populated"
+          }
+
+          cleanup_readback_resolved() {
+            python3.12 - "$@" <<'PY'
+          # BRQ_R4A_WORKFLOW_CLEANUP_PREDICATE_BEGIN
+          import sys
+          
+          def cleanup_readback_resolved(service_show_rc, active_state, cgroup_status, process_count, populated):
+              try:
+                  rc = int(service_show_rc)
+              except (TypeError, ValueError):
+                  return False
+              if rc != 0 or active_state not in {"inactive", "failed"}:
+                  return False
+              if cgroup_status in {"REMOVED", "NO_CONTROL_GROUP_REPORTED"}:
+                  return True
+              if cgroup_status != "READABLE":
+                  return False
+              try:
+                  count = int(process_count)
+              except (TypeError, ValueError):
+                  return False
+              return count == 0 and str(populated) == "0"
+          # BRQ_R4A_WORKFLOW_CLEANUP_PREDICATE_END
+          print("yes" if cleanup_readback_resolved(*sys.argv[1:]) else "no")
+          PY
+          }
+
+          find_control_pids() {
+            local u="$1"
+            python3.12 - "$u" <<'PY'
+          import os,pathlib,sys
+          unit=sys.argv[1]
+          needle=("--unit="+unit).encode()
+          for cmdline in pathlib.Path('/proc').glob('[0-9]*/cmdline'):
+              try: args=[x for x in cmdline.read_bytes().split(b'\0') if x]
+              except OSError: continue
+              if not args: continue
+              if os.path.basename(os.fsdecode(args[0]))=='systemd-run' and needle in args:
+                  print(cmdline.parent.name)
+          PY
+          }
+
+          if [ -n "$unit" ]; then
+            IFS='|' read -r _ _ cg_before _ _ _ < <(service_containment_snapshot "$unit")
+            mapfile -t cpids < <(find_control_pids "$unit")
+            control_pids_before=${#cpids[@]}
+            sudo -n systemctl stop --no-block "$unit" >/dev/null 2>&1 || true
+            for _ in $(seq 1 30); do
+              IFS='|' read -r show_rc_now active_now cg_now cg_status_now count_now populated_now < <(service_containment_snapshot "$unit")
+              if [ "$(cleanup_readback_resolved "$show_rc_now" "$active_now" "$cg_status_now" "$count_now" "$populated_now")" = yes ]; then break; fi
+              sleep .1
+            done
+            IFS='|' read -r show_rc_now active_now cg_now cg_status_now count_now populated_now < <(service_containment_snapshot "$unit")
+            if [ "$(cleanup_readback_resolved "$show_rc_now" "$active_now" "$cg_status_now" "$count_now" "$populated_now")" != yes ]; then
+              sudo -n systemctl kill --kill-who=all --signal=SIGKILL "$unit" >/dev/null 2>&1 || true
+              for _ in $(seq 1 40); do
+                IFS='|' read -r show_rc_now active_now cg_now cg_status_now count_now populated_now < <(service_containment_snapshot "$unit")
+                if [ "$(cleanup_readback_resolved "$show_rc_now" "$active_now" "$cg_status_now" "$count_now" "$populated_now")" = yes ]; then break; fi
+                sleep .1
+              done
+            fi
+
+            mapfile -t cpids < <(find_control_pids "$unit")
+            if [ "${#cpids[@]}" -gt 0 ]; then
+              kill -TERM "${cpids[@]}" 2>/dev/null || true
+              sleep .5
+              mapfile -t cpids < <(find_control_pids "$unit")
+              if [ "${#cpids[@]}" -gt 0 ]; then kill -KILL "${cpids[@]}" 2>/dev/null || true; sleep .2; fi
+            fi
+            mapfile -t cpids < <(find_control_pids "$unit")
+            control_pids_after=${#cpids[@]}
+            IFS='|' read -r service_show_rc_after active_after cg_after cgroup_readback_status_after procs_after populated_after < <(service_containment_snapshot "$unit")
+            if [ "$(cleanup_readback_resolved "$service_show_rc_after" "$active_after" "$cgroup_readback_status_after" "$procs_after" "$populated_after")" != yes ]; then cleanup_unresolved=1; fi
+            if [ "$control_pids_after" -ne 0 ]; then cleanup_unresolved=1; fi
+          fi
+
+          timer_cleanup_unresolved=0
+          for base in "ma-m1-t0-stop-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "ma-m1-t0-quiescence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "ma-m1-t0-timeout-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"; do
+            sudo -n systemctl stop "$base.timer" "$base.service" >/dev/null 2>&1 || true
+            state=$(sudo -n systemctl is-active "$base.timer" 2>/dev/null || true)
+            case "$state" in inactive|failed|unknown|'') ;; *) timer_cleanup_unresolved=1 ;; esac
+            sudo -n systemctl reset-failed "$base.timer" "$base.service" >/dev/null 2>&1 || true
+          done
+          if [ "$timer_cleanup_unresolved" -ne 0 ]; then cleanup_unresolved=1; fi
+
+          # Cleanup status is now established. Only now may registration/control identity
+          # be discarded. Preserve it on unresolved cleanup for forensic follow-up.
+          control_removed=false
+          registration_removed=false
+          if [ "$cleanup_unresolved" -eq 0 ]; then
+            if sudo -n test -e "$registration"; then sudo -n rm -f -- "$registration" && registration_removed=true; else registration_removed=true; fi
+            if sudo -n test -d "$control"; then
+              case "$control" in
+                /run/ma-m1-ir01-deadline-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}) sudo -n rm -rf -- "$control" && control_removed=true ;;
+                *) cleanup_unresolved=1 ;;
+              esac
+            else
+              control_removed=true
+            fi
+          fi
+
+          python3.12 - "$evidence/WORKFLOW_CLEANUP.json" "$registration_status" "$unit" "$cg_before" "$cg_after" "$service_show_rc_after" "$active_after" "$cgroup_readback_status_after" "$procs_after" "$populated_after" "$control_pids_before" "$control_pids_after" "$timer_cleanup_unresolved" "$cleanup_unresolved" "$registration_removed" "$control_removed" <<'PY'
+          import json,sys
+          (p,reg,unit,cgb,cga,show_rc,active,cg_status,procs,pop,cpb,cpa,timer_unres,unres,reg_removed,control_removed)=sys.argv[1:]
+          obj={'schema':'MA-M1-BRQ-WORKFLOW-CLEANUP-v3','registration_status':reg,'unit':unit or None,
+               'cgroup_before':cgb or None,'cgroup_after':cga or None,
+               'service_show_returncode_after':int(show_rc) if show_rc.lstrip('-').isdigit() else None,
+               'active_state_after':active,'cgroup_readback_status_after':cg_status,
+               'cgroup_process_count_after':int(procs) if procs.lstrip('-').isdigit() else None,
+               'cgroup_populated_after':None if pop=='unknown' else (pop=='1'),
+               'control_process_count_before':int(cpb),'control_process_count_after':int(cpa),
+               'timer_cleanup_unresolved':timer_unres!='0','cleanup_status_established':True,
+               'cleanup_unresolved_exposure':unres!='0','registration_removed':reg_removed=='true',
+               'deadline_control_removed':control_removed=='true',
+               'cleanup_requires_terminated_service_and_empty_or_removed_containment':True,
+               'eventual_runner_destruction_used_as_proof':False}
+          open(p,'w').write(json.dumps(obj,indent=2,sort_keys=True)+'\n')
+          PY
+
+          if [ "$cleanup_unresolved" -eq 0 ]; then
+            rm -rf -- "$RUNNER_TEMP/m1_admitted" "$RUNNER_TEMP/m1venv" "$RUNNER_TEMP/bempp-cl" "$RUNNER_TEMP/wheel_inventory" \
+              "$RUNNER_TEMP/m1_gate_control" "$RUNNER_TEMP/m1_private_diagnostics" "$GITHUB_WORKSPACE/private_source_inbox"
+            rm -f -- "$RUNNER_TEMP"/m1_deadline_action.*.sh "$RUNNER_TEMP/m1_cleanup_registration.json"
+          else
+            echo 'CLEANUP_UNRESOLVED_EXPOSURE=YES; runner destruction is not accepted as cleanup proof' >&2
+            exit 2
+          fi
+      - name: Enforce public-safe evidence allowlist, confidentiality checks and complete-tree size cap
+        id: evidence_safety
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          evidence="$RUNNER_TEMP/m1_evidence"
+          cap_bytes=1048576
+          test -d "$evidence"
+
+          # Validator-generated metadata is part of the upload tree. Create it first,
+          # then perform the final member/content/size validation with no later writes.
+          python3.12 - "$evidence/PUBLIC_EVIDENCE_VALIDATION.json" "$cap_bytes" <<'PY'
+          import json,sys
+          open(sys.argv[1],'w').write(json.dumps({
+              'schema':'MA-M1-PUBLIC-EVIDENCE-VALIDATION-v3',
+              'status':'PASS_IF_THIS_STEP_COMPLETES',
+              'raw_traceback_allowed':False,
+              'private_source_allowed':False,
+              'credential_material_allowed':False,
+              'size_cap_bytes':int(sys.argv[2]),
+              'size_measure':'sum_of_st_size_for_every_regular_file_in_complete_uncompressed_upload_tree_after_validator_metadata_and_member_list; directory metadata and archive/compression overhead excluded'
+          },sort_keys=True)+'\n')
+          PY
+          : > "$evidence/EVIDENCE_MEMBERS.txt"
+          find "$evidence" -type f -printf '%P\n' | sort > "$evidence/EVIDENCE_MEMBERS.txt"
+
+          if find "$evidence" -type l | grep -q .; then echo 'PUBLIC_EVIDENCE_REJECTED: symlink member' >&2; exit 2; fi
+          if find "$evidence" -type f \( -name '*.py' -o -name '*.zip' -o -name '*.whl' \) | grep -q .; then echo 'PUBLIC_EVIDENCE_REJECTED: forbidden source/binary member' >&2; exit 2; fi
+          while IFS= read -r -d '' f; do
+            rel=${f#"$evidence/"}
+            case "$rel" in
+              DEADLINE_CONTROL/DEADLINE_ARMED.json|DEADLINE_CONTROL/STOP_INITIATED.json|DEADLINE_CONTROL/QUIESCENCE_TARGET.json|DEADLINE_CONTROL/OPERATIONAL_TIMEOUT.json|DEADLINE_CONTROL/SCIENTIFIC_UNIT_REGISTRATION.json|\
+              WHEEL_SHA256.txt|BEMPP_COMMIT.txt|BEMPP_PYPROJECT_GIT_BLOB_ID.txt|BEMPP_PYPROJECT_FILE_SHA256_DIAGNOSTIC.txt|SOURCE_ADMISSION_RECEIPT.json|\
+              dependency-observed.json|api-probe.json|qualification.json|fixture-work/payload/fixture_started.json|WORKFLOW_CLEANUP.json|\
+              PUBLIC_EVIDENCE_VALIDATION.json|EVIDENCE_MEMBERS.txt) ;;
+              *) echo "PUBLIC_EVIDENCE_REJECTED: non-allowlisted member $rel" >&2; exit 2 ;;
+            esac
+          done < <(find "$evidence" -type f -print0)
+          if grep -RIl --binary-files=without-match -E 'Traceback \(most recent call last\):|File "[^\"]+\.py", line|M1_PRIVATE_SOURCE_B64|M1_PRIVATE_ARTIFACT_READ_TOKEN|MA_M1_RUN_CAPABILITY=|github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+' "$evidence" | grep -q .; then
+            echo 'PUBLIC_EVIDENCE_REJECTED: raw traceback, credential or capability material detected' >&2; exit 2
+          fi
+          if grep -RIl --binary-files=without-match -E '/m1_admitted/|private_source_inbox|/M1/m1\.py|M1_IR01_EXECUTION_SOURCE_v6\.zip' "$evidence" | grep -q .; then
+            echo 'PUBLIC_EVIDENCE_REJECTED: private-source path/name material detected' >&2; exit 2
+          fi
+          complete_uncompressed_bytes=$(python3.12 - "$evidence" <<'PY'
+          import pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          total=0
+          for p in root.rglob('*'):
+              if p.is_symlink(): raise SystemExit(2)
+              if p.is_file(): total += p.stat().st_size
+          print(total)
+          PY
+          )
+          if [ "$complete_uncompressed_bytes" -gt "$cap_bytes" ]; then
+            echo "PUBLIC_EVIDENCE_REJECTED: complete uncompressed upload tree ${complete_uncompressed_bytes} bytes exceeds ${cap_bytes}" >&2
+            exit 2
+          fi
+          echo "PUBLIC_EVIDENCE_COMPLETE_UNCOMPRESSED_TREE_BYTES=$complete_uncompressed_bytes"
+          echo "PUBLIC_EVIDENCE_SIZE_CAP_BYTES=$cap_bytes"
+      - name: Preserve qualification evidence only after safety validation succeeds
+        if: ${{ always() && steps.evidence_safety.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-ir01-runner-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/m1_evidence/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
