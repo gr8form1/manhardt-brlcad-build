@@ -104,11 +104,15 @@ jobs:
               record["checks"]["runtime"]=prop("RuntimeMaxUSec")
               record["checks"]["stop_timeout"]=prop("TimeoutStopUSec")
               for key,expected in {"NoNewPrivileges":"yes","ProtectSystem":"strict",
-                                   "ProtectHome":"yes","PrivateTmp":"yes",
-                                   "IPAddressDeny":"any"}.items():
+                                   "ProtectHome":"yes","PrivateTmp":"yes"}.items():
                   observed=prop(key)
                   record["checks"]["sandbox_"+key]=observed
                   assert observed==expected,(key,observed,expected)
+              deny=prop("IPAddressDeny")
+              record["checks"]["sandbox_IPAddressDeny"]=deny
+              # systemd canonicalizes 'any' to the two universal IP prefixes.
+              # No other values are accepted; the live socket probe remains mandatory.
+              assert deny in ("any","::/0 0.0.0.0/0","0.0.0.0/0 ::/0"),deny
               families=prop("RestrictAddressFamilies")
               record["checks"]["sandbox_RestrictAddressFamilies"]=families
               assert families.strip()=="AF_UNIX",families
