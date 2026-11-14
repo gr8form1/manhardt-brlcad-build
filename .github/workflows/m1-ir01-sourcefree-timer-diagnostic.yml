@@ -48,8 +48,8 @@ jobs:
           test "$(sha256sum support/m1_brq_diag/accepted_initial_arm_source.py | awk '{print $1}')" = 839cbb827afe2663ee7e987c9a3ac56c7ddc617390c7e81a93959b91c56aad30
           test "$(sha256sum support/m1_brq_diag/supervisor.py | awk '{print $1}')" = 09ddf1f5e9d6e6b7d4c1c662bff54607e494119265b6c669928aa6954211c380
           test "$(sha256sum support/m1_brq_diag/custody.py | awk '{print $1}')" = 28e858d9ec14b6bec642938db8afbf257f19a2108d36892abf9cdf06468f1ab6
-          test "$(sha256sum support/m1_brq_diag/diagnostic_driver.py | awk '{print $1}')" = 470032329cfa1d48978816216b98f9983dd0009d4db09b9ce06dd69516281ca1
-          test "$(sha256sum support/m1_brq_diag/validate_public_evidence.py | awk '{print $1}')" = d0ddf6c0dbfe48c46cc78a08e8d87b6a7c24b72e08590356700f821e7f02b539
+          test "$(sha256sum support/m1_brq_diag/diagnostic_driver.py | awk '{print $1}')" = 81a3c42cb1e700ad68e7b74e25e818f4fdf5c0a837e2f78336bc6b1e571bff4b
+          test "$(sha256sum support/m1_brq_diag/validate_public_evidence.py | awk '{print $1}')" = 9a5317592015061c52140979321f8692017ff591bb98e280165473aefb5046cc
       - name: One exact +540 timer, original-T0 and actual reviewed dual readback with try/finally teardown
         id: one_timer
         shell: bash
@@ -64,7 +64,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          test "$(sha256sum support/m1_brq_diag/diagnostic_driver.py | awk '{print $1}')" = 470032329cfa1d48978816216b98f9983dd0009d4db09b9ce06dd69516281ca1
+          test "$(sha256sum support/m1_brq_diag/diagnostic_driver.py | awk '{print $1}')" = 81a3c42cb1e700ad68e7b74e25e818f4fdf5c0a837e2f78336bc6b1e571bff4b
           timeout --signal=TERM --kill-after=5s 55s /usr/bin/python3.12 support/m1_brq_diag/diagnostic_driver.py cleanup "$RUNNER_TEMP/m1_sourcefree_diagnostic_evidence"
       - name: Validate complete allowlisted public evidence tree before upload
         if: always()
@@ -72,7 +72,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$(sha256sum support/m1_brq_diag/validate_public_evidence.py | awk '{print $1}')" = d0ddf6c0dbfe48c46cc78a08e8d87b6a7c24b72e08590356700f821e7f02b539
+          test "$(sha256sum support/m1_brq_diag/validate_public_evidence.py | awk '{print $1}')" = 9a5317592015061c52140979321f8692017ff591bb98e280165473aefb5046cc
           timeout --signal=TERM --kill-after=5s 20s /usr/bin/python3.12 support/m1_brq_diag/validate_public_evidence.py "$RUNNER_TEMP/m1_sourcefree_diagnostic_evidence"
       - name: Upload only source-free, confidentiality-screened diagnostic evidence
         if: ${{ always() && steps.validate_public.outcome == 'success' }}

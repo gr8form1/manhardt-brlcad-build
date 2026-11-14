@@ -27,7 +27,7 @@ MAX_PREARM_ELAPSED_S = 80
 CLEANUP_BUDGET_S = 12
 MAX_TIMER_COMMAND_S = 5
 MAX_TEARDOWN_COMMAND_S = 3
-SCHEMA = 'MA-M1-BRQ-SOURCEFREE-DIAG-v2'
+SCHEMA = 'MA-M1-BRQ-SOURCEFREE-DIAG-v3.1'
 
 class DiagnosticFailure(Exception):
     """Only a fixed code may propagate beyond the process."""
@@ -137,15 +137,22 @@ def prearm_budget_gate():
         _fail('PREARM_BUDGET_UNVERIFIABLE')
 
 
-def bounded(argv, timeout_s, *, allow_nonzero=False):
+def bounded(argv, timeout_s, *, allow_nonzero=False, observation=None):
+    # Optional fixed-category observation only; argv, timeout and return semantics
+    # remain identical to accepted v2. Never retain stdout/stderr in evidence.
     try:
         r = subprocess.run(argv, text=True, capture_output=True, check=False, timeout=timeout_s)
-    except (OSError, ValueError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        if observation is not None: observation['result'] = 'TIMEOUT'
         return None
+    except (OSError, ValueError):
+        if observation is not None: observation['result'] = 'UNAVAILABLE'
+        return None
+    if observation is not None:
+        observation['result'] = 'SUCCESS' if r.returncode == 0 else 'NONZERO'
     if not allow_nonzero and r.returncode != 0:
         return None
     return r
-
 
 def present_timer(timer):
     r = bounded(['sudo', '-n', 'systemctl', 'is-active', '--quiet', timer], 4)
@@ -165,128 +172,216 @@ def arm_one_timer(base, t0_ns):
         _fail('TIMER_CREATION_FAILED')
 
 
-def verified_deadline_equality(arm, supervisor, timer, t0_ns):
-    # INVOKE THE UNMODIFIED REVIEWED FUNCTIONS. No diagnostic parser or substitute.
-    # The initial verifier enforces unit binding, typed DBus, T0, 540s and 2s lead.
+def new_stage_provenance():
+    return {'source_authenticated': False, 'prearm_passed': False,
+            'timer_active_entered': False, 'timer_active_passed': False, 'initial_arm_entered': False,
+            'initial_arm_returned': False, 'initial_arm_record_checked': False,
+            'supervisor_entered': False, 'supervisor_value_verified': False,
+            'comparison_state': 'NOT_REACHED', 'post_readback_passed': False}
+
+
+def verified_deadline_equality(arm, supervisor, timer, t0_ns, observations=None):
+    # Only the diagnostic observations are new. Accepted verifiers, ordering,
+    # rejection conditions, arithmetic and clock sampling are unchanged.
+    obs = observations if observations is not None else {}
+    stages = obs.setdefault('stages', new_stage_provenance())
+    stages['initial_arm_entered'] = True
     try:
         arm_record = arm.verify_timer_schedule(unit=timer, t0_ns=t0_ns,
                                                 target_s=540, lead_s=2)
     except Exception:
         _fail('INITIAL_ARM_READBACK_REJECTED')
+    stages['initial_arm_returned'] = True
     if (not isinstance(arm_record, dict) or arm_record.get('timer_unit') != timer
             or arm_record.get('key') != 'stop' or arm_record.get('target_s') != 540
             or arm_record.get('arm_lead_s') != 2
             or arm_record.get('verified_not_late') is not True):
         _fail('INITIAL_ARM_RECORD_INVALID')
 
-    # Next line invokes the ACTUAL corrected supervisor helper, no copy or proxy.
+    # Retain only a positive, target-bound number from a returned accepted
+    # record, even if the later supervisor call fails or cleanup is unverified.
+    candidate = arm_record.get('next_elapse_monotonic_usec')
+    target = t0_ns // 1000 + TARGET_S * 1_000_000
+    if (type(candidate) is int and candidate > 0
+            and type(arm_record.get('target_monotonic_usec')) is int
+            and arm_record['target_monotonic_usec'] == target):
+        obs['initial_arm_deadline_monotonic_usec'] = candidate
+
+    stages['supervisor_entered'] = True
     try:
         next_us = supervisor.timer_next_elapse_usec(timer)
     except Exception:
         _fail('SUPERVISOR_READBACK_REJECTED')
     if type(next_us) is not int or next_us <= 0:
         _fail('SUPERVISOR_READBACK_REJECTED')
+    stages['supervisor_value_verified'] = True
+    obs['supervisor_deadline_monotonic_usec'] = next_us
     observed = arm_record.get('next_elapse_monotonic_usec')
-    target = t0_ns // 1000 + TARGET_S * 1_000_000
     if (type(observed) is not int or type(arm_record.get('target_monotonic_usec')) is not int
             or arm_record['target_monotonic_usec'] != target):
         _fail('INITIAL_ARM_RECORD_INVALID')
+    stages['initial_arm_record_checked'] = True
+    stages['comparison_state'] = 'MISMATCH' if observed != next_us else 'MATCH'
     if observed != next_us:
         _fail('INDEPENDENT_DEADLINE_MISMATCH')
+    obs['deadline_monotonic_usec'] = next_us
     post_ns = time.monotonic_ns()
+    if post_ns >= t0_ns:
+        obs['readback_elapsed_ms'] = (post_ns - t0_ns) // 1_000_000
     if post_ns < t0_ns or post_ns >= t0_ns + TARGET_S * 1_000_000_000:
         _fail('ORIGINAL_STOP_BOUNDARY_REACHED')
     if post_ns - t0_ns > MAX_SETUP_AND_READBACK_S * 1_000_000_000:
         _fail('DIAGNOSTIC_READBACK_BUDGET_EXCEEDED')
+    stages['post_readback_passed'] = True
     return next_us, (post_ns - t0_ns) // 1_000_000, observed
 
-
-def _unit_inactive(unit):
+def _unit_inactive(unit, observation=None):
+    command = {}
     r = bounded(['sudo', '-n', 'systemctl', 'show', unit,
                  '-p', 'ActiveState', '-p', 'ControlGroup', '-p', 'Job', '-p', 'LoadState'],
-                MAX_TEARDOWN_COMMAND_S)
-    if r is None or not isinstance(r.stdout, str) or len(r.stdout) > 1024:
+                MAX_TEARDOWN_COMMAND_S, observation=command)
+    if r is None:
+        if observation is not None:
+            observation['result'] = (command.get('result')
+                                     if command.get('result') in ('TIMEOUT','NONZERO')
+                                     else 'UNAVAILABLE')
+        return False
+    if not isinstance(r.stdout, str) or len(r.stdout) > 1024:
+        if observation is not None: observation['result'] = 'MALFORMED'
         return False
     lines = r.stdout.splitlines()
     if len(lines) != 4 or any(line.count('=') != 1 for line in lines):
+        if observation is not None: observation['result'] = 'MALFORMED'
         return False
     props = dict(line.split('=', 1) for line in lines)
     if set(props) != {'ActiveState', 'ControlGroup', 'Job', 'LoadState'}:
+        if observation is not None: observation['result'] = 'MALFORMED'
         return False
-    # Check both control state and queued work; do not assume stopping succeeded.
-    return (props['ActiveState'] in ('inactive', 'failed')
-            and props['ControlGroup'] == ''
-            and props['Job'] in ('', '0')
-            and props['LoadState'] in ('loaded', 'not-found', 'masked'))
-
+    # Exact accepted v2 inactivity predicate, no extra query or relaxation.
+    positive = (props['ActiveState'] in ('inactive', 'failed')
+                and props['ControlGroup'] == ''
+                and props['Job'] in ('', '0')
+                and props['LoadState'] in ('loaded', 'not-found', 'masked'))
+    if observation is not None:
+        observation['result'] = 'VERIFIED_INACTIVE' if positive else 'NOT_INACTIVE'
+        observation['predicates'] = {
+            'ActiveState': 'PASS' if props['ActiveState'] in ('inactive', 'failed') else 'FAIL',
+            'ControlGroup': 'PASS' if props['ControlGroup'] == '' else 'FAIL',
+            'Job': 'PASS' if props['Job'] in ('', '0') else 'FAIL',
+            'LoadState': 'PASS' if props['LoadState'] in ('loaded', 'not-found', 'masked') else 'FAIL',
+        }
+    return positive
 
 def teardown(base, timer, service, *, registration_uncertainty_unresolved=False):
-    # The timer identity is reconstructed from the invocation, NEVER a record.
-    # Two stop requests must return to be counted as 'returned'. An exit status
-    # of zero is recorded separately: 'returned' does not mean 'succeeded'.
+    # Same stop commands, polling, reset, and positive predicate as v2.
+    stop_timer_obs, stop_service_obs = {}, {}
     stop_timer = bounded(['sudo', '-n', 'systemctl', 'stop', timer], MAX_TEARDOWN_COMMAND_S,
-                         allow_nonzero=True)
+                         allow_nonzero=True, observation=stop_timer_obs)
     stop_service = bounded(['sudo', '-n', 'systemctl', 'stop', service], MAX_TEARDOWN_COMMAND_S,
-                           allow_nonzero=True)
+                           allow_nonzero=True, observation=stop_service_obs)
     stop_commands_returned = stop_timer is not None and stop_service is not None
     stop_commands_succeeded = (stop_commands_returned and stop_timer.returncode == 0
                                and stop_service.returncode == 0)
+    def stop_class(result, category):
+        if result is not None:
+            return 'SUCCESS' if result.returncode == 0 else 'NONZERO'
+        return category.get('result', 'UNAVAILABLE')
+    t_stop, s_stop = stop_class(stop_timer, stop_timer_obs), stop_class(stop_service, stop_service_obs)
+    t_state, s_state = {'result':'NOT_REACHED'}, {'result':'NOT_REACHED'}
+    def observed_inactive(unit, state):
+        result = _unit_inactive(unit, observation=state)
+        # Supports offline instrumentation; production always populates state.
+        if state.get('result') == 'NOT_REACHED':
+            state['result'] = 'VERIFIED_INACTIVE' if result else 'UNAVAILABLE'
+        return result
     start = time.monotonic()
     verified = False
     while time.monotonic() - start < CLEANUP_BUDGET_S:
-        if _unit_inactive(timer) and _unit_inactive(service):
+        # One paired evaluation: never mix an earlier service observation with
+        # a later timer observation when Python's original AND short-circuits.
+        t_state, s_state = {'result':'NOT_REACHED'}, {'result':'NOT_REACHED'}
+        if observed_inactive(timer, t_state) and observed_inactive(service, s_state):
             verified = True
             break
         time.sleep(0.1)
-    # Clear failure state only after independent readback, then recheck.
     if verified:
         bounded(['sudo', '-n', 'systemctl', 'reset-failed', timer, service],
                 MAX_TEARDOWN_COMMAND_S, allow_nonzero=True)
-        verified = _unit_inactive(timer) and _unit_inactive(service)
-    # An interrupted systemd-run MAY register after an absent/inactive snapshot.
-    # No positive teardown is claimed without source proof of completed creation.
+        # Reset/recheck is the terminal observation; retain no earlier pair.
+        t_state, s_state = {'result':'NOT_REACHED'}, {'result':'NOT_REACHED'}
+        verified = observed_inactive(timer, t_state) and observed_inactive(service, s_state)
+    def predicates(state):
+        return state.get('predicates', {key: 'NOT_OBSERVED' for key in
+               ('ActiveState', 'ControlGroup', 'Job', 'LoadState')})
     return {'stop_commands_returned': bool(stop_commands_returned),
             'stop_commands_succeeded': bool(stop_commands_succeeded),
             'timer_and_service_inactive_verified': bool(verified),
             'registration_uncertainty_unresolved': bool(registration_uncertainty_unresolved),
             'teardown_verified': bool(verified and stop_commands_returned
-                                      and not registration_uncertainty_unresolved)}
+                                      and not registration_uncertainty_unresolved),
+            'timer_stop_result': t_stop, 'service_stop_result': s_stop,
+            'timer_state_readback': t_state['result'],
+            'service_state_readback': s_state['result'],
+            'timer_property_predicates': predicates(t_state),
+            'service_property_predicates': predicates(s_state)}
 
 
 def empty_cleanup(*, uncertainty=True):
     return {'stop_commands_returned': False, 'stop_commands_succeeded': False,
             'timer_and_service_inactive_verified': False,
             'registration_uncertainty_unresolved': bool(uncertainty),
-            'teardown_verified': False}
-
+            'teardown_verified': False,
+            'timer_stop_result': 'NOT_REACHED', 'service_stop_result': 'NOT_REACHED',
+            'timer_state_readback': 'NOT_REACHED', 'service_state_readback': 'NOT_REACHED',
+            'timer_property_predicates': {k: 'NOT_OBSERVED' for k in
+                ('ActiveState','ControlGroup','Job','LoadState')},
+            'service_property_predicates': {k: 'NOT_OBSERVED' for k in
+                ('ActiveState','ControlGroup','Job','LoadState')}}
 
 def _update_status_for_final_cleanup(evidence, final_verified):
-    """Finalize provisional readback only AFTER independent cleanup evidence."""
+    """Finalize only the overall outcome and final failure domain.
+
+    Neither primary failure, initial-teardown failure, stage history nor any
+    observed deadline may be rewritten by the independent cleanup step.
+    """
     p = evidence / 'DIAGNOSTIC_STATUS.json'
     if not p.is_file() or p.is_symlink():
         return False
     record = json.loads(p.read_text(encoding='utf-8'))
     if record.get('schema') != SCHEMA or record.get('outcome') not in ('HOLD', 'PENDING_FINAL_CLEANUP'):
         return False
-    if record['outcome'] == 'PENDING_FINAL_CLEANUP' and final_verified:
-        record['outcome'] = 'PASS'
-        record['failure_code'] = 'NONE'
-        record['teardown_verified'] = True
-    elif not final_verified:
-        record['outcome'] = 'HOLD'
-        record['failure_code'] = 'FINAL_TEARDOWN_UNVERIFIED'
-        record['teardown_verified'] = False
-        for name in ('initial_arm_deadline_monotonic_usec', 'supervisor_deadline_monotonic_usec',
-                     'deadline_monotonic_usec', 'readback_elapsed_ms'):
-            record[name] = None
-        record['readbacks_equal'] = False
-    # Exclusive temporary write followed by atomic replacement. Interrupted writes
-    # leave pending or malformed evidence, which the validator rejects.
+    record['final_teardown_failure_code'] = ('NONE' if final_verified
+                                             else 'FINAL_TEARDOWN_UNVERIFIED')
+    initial_ok = record.get('initial_teardown_failure_code') == 'NONE'
+    stages = record.get('stage_provenance', {})
+    required_stages = ('source_authenticated','prearm_passed','timer_active_entered','timer_active_passed',
+                       'initial_arm_entered','initial_arm_returned','initial_arm_record_checked',
+                       'supervisor_entered','supervisor_value_verified','post_readback_passed')
+    initial_us = record.get('initial_arm_deadline_monotonic_usec')
+    supervisor_us = record.get('supervisor_deadline_monotonic_usec')
+    elapsed_ms = record.get('readback_elapsed_ms')
+    diagnostic_ok = (
+        record.get('primary_diagnostic_failure_code') == 'NONE'
+        and record.get('initial_source_authenticated') is True
+        and record.get('timer_creation_completed') is True
+        and record.get('original_t0_captured') is True
+        and type(record.get('original_t0_monotonic_ns')) is int
+        and record['original_t0_monotonic_ns'] > 0
+        and isinstance(stages, dict)
+        and all(stages.get(key) is True for key in required_stages)
+        and stages.get('comparison_state') == 'MATCH'
+        and record.get('deadline_comparison_state') == 'MATCH'
+        and type(initial_us) is int and initial_us > 0
+        and type(supervisor_us) is int and supervisor_us == initial_us
+        and record.get('deadline_monotonic_usec') == initial_us
+        and type(elapsed_ms) is int and 0 <= elapsed_ms <= 45_000)
+    combined = initial_ok and final_verified
+    record['outcome'] = 'PASS' if diagnostic_ok and combined else 'HOLD'
+    record['teardown_verified'] = combined
     tmp = evidence / 'DIAGNOSTIC_STATUS.json.finalizing'
     safe_json(tmp, record)
     os.replace(tmp, p)
     return True
-
 
 def safe_json(path, content):
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -296,53 +391,63 @@ def safe_json(path, content):
 
 
 def main_run(evidence):
-    # Installation and implementation checks precede the original T0 sample.
     base, timer, service = exact_unit_identity()
     outcome = 'HOLD'
-    code = 'UNEXPECTED_FAILURE'
+    primary_code = 'UNEXPECTED_FAILURE'
     t0_ns = None
     created = False
-    deadline_us = None
-    elapsed_ms = None
-    initial_deadline_us = None
+    observations = {'stages': new_stage_provenance(),
+                    'initial_arm_deadline_monotonic_usec': None,
+                    'supervisor_deadline_monotonic_usec': None,
+                    'deadline_monotonic_usec': None, 'readback_elapsed_ms': None}
     cleanup = empty_cleanup()
     verified_source = False
     try:
         arm, supervisor = load_exact_sources()
         verified_source = True
+        observations['stages']['source_authenticated'] = True
         prearm_budget_gate()
-        # Fresh original T0, followed immediately by one creation and two reads.
+        observations['stages']['prearm_passed'] = True
         t0_ns = time.monotonic_ns()
         arm_one_timer(base, t0_ns)
         created = True
+        observations['stages']['timer_active_entered'] = True
         if not present_timer(timer):
             _fail('TIMER_NOT_ACTIVE')
-        deadline_us, elapsed_ms, initial_deadline_us = verified_deadline_equality(arm, supervisor, timer, t0_ns)
-        outcome, code = 'PENDING_FINAL_CLEANUP', 'NONE'
+        observations['stages']['timer_active_passed'] = True
+        # Observations are captured as the accepted functions execute; cleanup
+        # may later change HOLD/PASS but never erase these authenticated values.
+        verified_deadline_equality(arm, supervisor, timer, t0_ns, observations)
+        outcome, primary_code = 'PENDING_FINAL_CLEANUP', 'NONE'
     except DiagnosticFailure as ex:
-        code = str(ex) if str(ex) in FAILURE_CODES else 'UNEXPECTED_FAILURE'
+        primary_code = str(ex) if str(ex) in FAILURE_CODES else 'UNEXPECTED_FAILURE'
     except Exception:
-        code = 'UNEXPECTED_FAILURE'
+        primary_code = 'UNEXPECTED_FAILURE'
     finally:
         try:
             cleanup = teardown(base, timer, service,
                                registration_uncertainty_unresolved=not created)
         except Exception:
             cleanup = empty_cleanup(uncertainty=not created)
+        initial_teardown_code = 'NONE' if cleanup['teardown_verified'] else 'TEARDOWN_UNVERIFIED'
         if not cleanup['teardown_verified']:
             outcome = 'HOLD'
-            code = 'TEARDOWN_UNVERIFIED'
-        rec = {'schema': SCHEMA, 'outcome': outcome, 'failure_code': code,
+        stages = observations['stages']
+        rec = {'schema': SCHEMA, 'outcome': outcome,
+               'primary_diagnostic_failure_code': primary_code,
+               'initial_teardown_failure_code': initial_teardown_code,
+               'final_teardown_failure_code': 'NOT_RECORDED',
                'run_id': os.environ['GITHUB_RUN_ID'], 'attempt': os.environ['GITHUB_RUN_ATTEMPT'],
                'initial_source_authenticated': verified_source,
+               'stage_provenance': stages,
                'timer_creation_completed': created, 'original_t0_captured': t0_ns is not None,
                'target_s': TARGET_S, 'arm_lead_s': ARM_LEAD_S,
                'original_t0_monotonic_ns': t0_ns,
-               'initial_arm_deadline_monotonic_usec': initial_deadline_us if outcome == 'PENDING_FINAL_CLEANUP' else None,
-               'supervisor_deadline_monotonic_usec': deadline_us if outcome == 'PENDING_FINAL_CLEANUP' else None,
-               'readbacks_equal': outcome == 'PENDING_FINAL_CLEANUP',
-               'deadline_monotonic_usec': deadline_us if outcome == 'PENDING_FINAL_CLEANUP' else None,
-               'readback_elapsed_ms': elapsed_ms if outcome == 'PENDING_FINAL_CLEANUP' else None,
+               'initial_arm_deadline_monotonic_usec': observations['initial_arm_deadline_monotonic_usec'],
+               'supervisor_deadline_monotonic_usec': observations['supervisor_deadline_monotonic_usec'],
+               'deadline_comparison_state': stages['comparison_state'],
+               'deadline_monotonic_usec': observations['deadline_monotonic_usec'],
+               'readback_elapsed_ms': observations['readback_elapsed_ms'],
                'teardown_verified': cleanup['teardown_verified'],
                'brq_qualification_established': False, 'scientific_execution': False}
         safe_json(evidence / 'DIAGNOSTIC_STATUS.json', rec)
@@ -354,7 +459,6 @@ def main_run(evidence):
                   custody_sha256=CUSTODY_SHA, source_authentication_passed=verified_source))
     print('M1_SOURCEFREE_INITIAL=' + ('PROVISIONAL' if outcome == 'PENDING_FINAL_CLEANUP' else 'HOLD'))
     return 0 if outcome == 'PENDING_FINAL_CLEANUP' else 2
-
 
 def main_cleanup(evidence):
     base, timer, service = exact_unit_identity()
