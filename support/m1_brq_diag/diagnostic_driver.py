@@ -27,7 +27,7 @@ MAX_PREARM_ELAPSED_S = 80
 CLEANUP_BUDGET_S = 12
 MAX_TIMER_COMMAND_S = 5
 MAX_TEARDOWN_COMMAND_S = 3
-SCHEMA = 'MA-M1-BRQ-SOURCEFREE-DIAG-v3.1'
+SCHEMA = 'MA-M1-BRQ-SOURCEFREE-DIAG-v4'
 
 class DiagnosticFailure(Exception):
     """Only a fixed code may propagate beyond the process."""
@@ -235,29 +235,88 @@ def verified_deadline_equality(arm, supervisor, timer, t0_ns, observations=None)
     stages['post_readback_passed'] = True
     return next_us, (post_ns - t0_ns) // 1_000_000, observed
 
+# Public readback metadata only: fixed categories, four-bit presence and capped count.
+# Mask order: ActiveState=1, ControlGroup=2, Job=4, LoadState=8.
+STATE_KEYS = ('ActiveState', 'ControlGroup', 'Job', 'LoadState')
+STATE_MASK_BITS = {'ActiveState': 1, 'ControlGroup': 2, 'Job': 4, 'LoadState': 8}
+STATE_LINE_COUNT_CAP = 9  # 9 means nine or more lines.
+STATE_TEXT_CAP = 1024    # unchanged rejection threshold, never publish text.
+
+
 def _unit_inactive(unit, observation=None):
+    # Preserve sudo/timeout and *the existing positive predicate*. --all requests
+    # explicit empty-property lines; without it systemctl may omit empty fields.
     command = {}
-    r = bounded(['sudo', '-n', 'systemctl', 'show', unit,
+    r = bounded(['sudo', '-n', 'systemctl', 'show', '--all', unit,
                  '-p', 'ActiveState', '-p', 'ControlGroup', '-p', 'Job', '-p', 'LoadState'],
                 MAX_TEARDOWN_COMMAND_S, observation=command)
+    if observation is not None:
+        observation['rejection_code'] = 'NOT_REACHED'
+        observation['presence_mask'] = None
+        observation['line_count_capped'] = None
     if r is None:
         if observation is not None:
-            observation['result'] = (command.get('result')
-                                     if command.get('result') in ('TIMEOUT','NONZERO')
-                                     else 'UNAVAILABLE')
+            status = (command.get('result') if command.get('result') in
+                      ('TIMEOUT', 'NONZERO') else 'UNAVAILABLE')
+            observation['result'] = status
+            observation['rejection_code'] = 'COMMAND_' + status
         return False
-    if not isinstance(r.stdout, str) or len(r.stdout) > 1024:
-        if observation is not None: observation['result'] = 'MALFORMED'
+    if not isinstance(r.stdout, str):
+        if observation is not None:
+            observation['result'] = 'MALFORMED'
+            observation['rejection_code'] = 'OUTPUT_INVALID'
+        return False
+    if len(r.stdout) > STATE_TEXT_CAP:
+        if observation is not None:
+            observation['result'] = 'MALFORMED'
+            observation['rejection_code'] = 'OUTPUT_OVERSIZED'
         return False
     lines = r.stdout.splitlines()
-    if len(lines) != 4 or any(line.count('=') != 1 for line in lines):
+    count = min(len(lines), STATE_LINE_COUNT_CAP)
+    mask = 0
+    props = {}
+    has_syntax_error = False
+    duplicate = False
+    unexpected = False
+    # Scan every line but retain no raw values. A malformed line has no known
+    # property identity. A syntactically valid known key contributes one bit.
+    for line in lines:
+        if line.count('=') != 1:
+            if line: has_syntax_error = True
+            continue
+        key, value = line.split('=', 1)
+        if key not in STATE_MASK_BITS:
+            unexpected = True
+            continue
+        mask |= STATE_MASK_BITS[key]
+        if key in props:
+            duplicate = True
+        else:
+            props[key] = value
+    # Deterministic precedence for concurrent errors, highest first:
+    # invalid/oversize (above) > malformed nonblank syntax > duplicate >
+    # unexpected key > missing required key > wrong line count/blank extra lines.
+    if has_syntax_error:
+        code = 'MALFORMED_SYNTAX'
+    elif duplicate:
+        code = 'DUPLICATE_PROPERTY'
+    elif unexpected:
+        code = 'UNEXPECTED_PROPERTY'
+    elif mask != 15:
+        code = 'MISSING_PROPERTY'
+    elif len(lines) != 4:
+        code = 'WRONG_LINE_COUNT'
+    else:
+        code = 'NONE'
+    if observation is not None:
+        observation['line_count_capped'] = count
+        observation['presence_mask'] = mask
+        observation['rejection_code'] = code
+    if code != 'NONE':
         if observation is not None: observation['result'] = 'MALFORMED'
         return False
-    props = dict(line.split('=', 1) for line in lines)
-    if set(props) != {'ActiveState', 'ControlGroup', 'Job', 'LoadState'}:
-        if observation is not None: observation['result'] = 'MALFORMED'
-        return False
-    # Exact accepted v2 inactivity predicate, no extra query or relaxation.
+    # Exact accepted v3.1 inactivity predicate. Classification must not affect
+    # this Boolean decision, or substitute stop-command exit status for state.
     positive = (props['ActiveState'] in ('inactive', 'failed')
                 and props['ControlGroup'] == ''
                 and props['Job'] in ('', '0')
@@ -296,10 +355,12 @@ def teardown(base, timer, service, *, registration_uncertainty_unresolved=False)
         return result
     start = time.monotonic()
     verified = False
+    terminal_origin = 'NOT_REACHED'
     while time.monotonic() - start < CLEANUP_BUDGET_S:
         # One paired evaluation: never mix an earlier service observation with
         # a later timer observation when Python's original AND short-circuits.
         t_state, s_state = {'result':'NOT_REACHED'}, {'result':'NOT_REACHED'}
+        terminal_origin = 'POLLING'
         if observed_inactive(timer, t_state) and observed_inactive(service, s_state):
             verified = True
             break
@@ -309,10 +370,16 @@ def teardown(base, timer, service, *, registration_uncertainty_unresolved=False)
                 MAX_TEARDOWN_COMMAND_S, allow_nonzero=True)
         # Reset/recheck is the terminal observation; retain no earlier pair.
         t_state, s_state = {'result':'NOT_REACHED'}, {'result':'NOT_REACHED'}
+        terminal_origin = 'POST_RESET_RECHECK'
         verified = observed_inactive(timer, t_state) and observed_inactive(service, s_state)
     def predicates(state):
         return state.get('predicates', {key: 'NOT_OBSERVED' for key in
                ('ActiveState', 'ControlGroup', 'Job', 'LoadState')})
+    def bounded_state_metadata(state):
+        return (state.get('rejection_code', 'NOT_REACHED'),
+                state.get('presence_mask'), state.get('line_count_capped'))
+    t_code, t_mask, t_count = bounded_state_metadata(t_state)
+    s_code, s_mask, s_count = bounded_state_metadata(s_state)
     return {'stop_commands_returned': bool(stop_commands_returned),
             'stop_commands_succeeded': bool(stop_commands_succeeded),
             'timer_and_service_inactive_verified': bool(verified),
@@ -323,7 +390,14 @@ def teardown(base, timer, service, *, registration_uncertainty_unresolved=False)
             'timer_state_readback': t_state['result'],
             'service_state_readback': s_state['result'],
             'timer_property_predicates': predicates(t_state),
-            'service_property_predicates': predicates(s_state)}
+            'service_property_predicates': predicates(s_state),
+            'timer_state_rejection_code': t_code,
+            'service_state_rejection_code': s_code,
+            'timer_property_presence_mask': t_mask,
+            'service_property_presence_mask': s_mask,
+            'timer_state_line_count_capped': t_count,
+            'service_state_line_count_capped': s_count,
+            'terminal_evaluation_origin': terminal_origin}
 
 
 def empty_cleanup(*, uncertainty=True):
@@ -336,7 +410,14 @@ def empty_cleanup(*, uncertainty=True):
             'timer_property_predicates': {k: 'NOT_OBSERVED' for k in
                 ('ActiveState','ControlGroup','Job','LoadState')},
             'service_property_predicates': {k: 'NOT_OBSERVED' for k in
-                ('ActiveState','ControlGroup','Job','LoadState')}}
+                ('ActiveState','ControlGroup','Job','LoadState')},
+            'timer_state_rejection_code': 'NOT_REACHED',
+            'service_state_rejection_code': 'NOT_REACHED',
+            'timer_property_presence_mask': None,
+            'service_property_presence_mask': None,
+            'timer_state_line_count_capped': None,
+            'service_state_line_count_capped': None,
+            'terminal_evaluation_origin': 'NOT_REACHED'}
 
 def _update_status_for_final_cleanup(evidence, final_verified):
     """Finalize only the overall outcome and final failure domain.

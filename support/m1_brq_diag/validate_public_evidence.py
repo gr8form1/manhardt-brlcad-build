@@ -8,7 +8,7 @@ from __future__ import annotations
 import json, os, re, sys
 from pathlib import Path
 
-SCHEMA = 'MA-M1-BRQ-SOURCEFREE-DIAG-v3.1'
+SCHEMA = 'MA-M1-BRQ-SOURCEFREE-DIAG-v4'
 CAP = 32768
 KNOWN = {'DIAGNOSTIC_STATUS.json', 'TEARDOWN_STATUS.json', 'FINAL_TEARDOWN_STATUS.json',
          'SOURCE_IDENTITIES.json', 'PUBLIC_EVIDENCE_VALIDATION.json', 'EVIDENCE_MEMBERS.txt'}
@@ -31,6 +31,16 @@ PROPERTY_NAMES = frozenset({'ActiveState','ControlGroup','Job','LoadState'})
 PROPERTY_CLASS = frozenset({'NOT_OBSERVED','PASS','FAIL'})
 STOP = frozenset({'NOT_REACHED','SUCCESS','NONZERO','TIMEOUT','UNAVAILABLE'})
 STATE = frozenset({'NOT_REACHED','VERIFIED_INACTIVE','NOT_INACTIVE','MALFORMED','TIMEOUT','NONZERO','UNAVAILABLE'})
+REJECTION = frozenset({
+    'NOT_REACHED', 'NONE', 'COMMAND_TIMEOUT', 'COMMAND_NONZERO',
+    'COMMAND_UNAVAILABLE', 'OUTPUT_INVALID', 'OUTPUT_OVERSIZED',
+    'MALFORMED_SYNTAX', 'DUPLICATE_PROPERTY', 'UNEXPECTED_PROPERTY',
+    'MISSING_PROPERTY', 'WRONG_LINE_COUNT',
+})
+TERMINAL_ORIGIN = frozenset({'NOT_REACHED','POLLING','POST_RESET_RECHECK'})
+PARSE_REJECTIONS = REJECTION - {
+    'NOT_REACHED','NONE','COMMAND_TIMEOUT','COMMAND_NONZERO','COMMAND_UNAVAILABLE'
+}
 CMP = frozenset({'NOT_REACHED','MATCH','MISMATCH'})
 SHA = re.compile(r'[0-9a-f]{64}',re.ASCII)
 DIGITS = re.compile(r'[0-9]{1,20}',re.ASCII)
@@ -187,7 +197,11 @@ def check_teardown(o):
                     'timer_and_service_inactive_verified','registration_uncertainty_unresolved',
                     'teardown_verified','timer_stop_result','service_stop_result',
                     'timer_state_readback','service_state_readback',
-                    'timer_property_predicates','service_property_predicates'})
+                    'timer_property_predicates','service_property_predicates',
+                    'timer_state_rejection_code','service_state_rejection_code',
+                    'timer_property_presence_mask','service_property_presence_mask',
+                    'timer_state_line_count_capped','service_state_line_count_capped',
+                    'terminal_evaluation_origin'})
     run_identity(o)
     boolean(o,'stop_commands_returned','stop_commands_succeeded',
             'timer_and_service_inactive_verified','registration_uncertainty_unresolved',
@@ -196,14 +210,26 @@ def check_teardown(o):
     ti,si=o['timer_state_readback'],o['service_state_readback']
     if any(type(x) is not str for x in (t,s,ti,si)) or t not in STOP or s not in STOP or ti not in STATE or si not in STATE:
         raise ValueError('TEARDOWN_ENUM')
+    origin=o['terminal_evaluation_origin']
+    if type(origin) is not str or origin not in TERMINAL_ORIGIN:
+        raise ValueError('TERMINAL_ORIGIN_ENUM')
     for unit in ('timer','service'):
         state = o[unit+'_state_readback']
         predicates = o[unit+'_property_predicates']
+        rejection = o[unit+'_state_rejection_code']
+        mask = o[unit+'_property_presence_mask']
+        count = o[unit+'_state_line_count_capped']
         if not isinstance(predicates,dict) or set(predicates)!=PROPERTY_NAMES:
             raise ValueError('PROPERTY_PREDICATE_SCHEMA')
         if any(type(value) is not str or value not in PROPERTY_CLASS
                for value in predicates.values()):
             raise ValueError('PROPERTY_PREDICATE_ENUM')
+        if type(rejection) is not str or rejection not in REJECTION:
+            raise ValueError('REJECTION_ENUM')
+        if mask is not None and (type(mask) is not int or not 0<=mask<=15):
+            raise ValueError('PRESENCE_MASK')
+        if count is not None and (type(count) is not int or not 0<=count<=9):
+            raise ValueError('LINE_COUNT')
         values=list(predicates.values())
         if state=='VERIFIED_INACTIVE' and not all(x=='PASS' for x in values):
             raise ValueError('PROPERTY_VERIFIED_CONTRADICTION')
@@ -213,12 +239,69 @@ def check_teardown(o):
         if state not in ('VERIFIED_INACTIVE','NOT_INACTIVE') and any(
                 x!='NOT_OBSERVED' for x in values):
             raise ValueError('PROPERTY_UNAVAILABLE_CONTRADICTION')
+        if state in ('NOT_REACHED','TIMEOUT','NONZERO','UNAVAILABLE'):
+            correct={'NOT_REACHED':'NOT_REACHED','TIMEOUT':'COMMAND_TIMEOUT',
+                     'NONZERO':'COMMAND_NONZERO','UNAVAILABLE':'COMMAND_UNAVAILABLE'}[state]
+            if rejection!=correct or mask is not None or count is not None:
+                raise ValueError('UNAVAILABLE_REJECTION_CONTRADICTION')
+        elif state in ('VERIFIED_INACTIVE','NOT_INACTIVE'):
+            if rejection!='NONE' or mask!=15 or count!=4:
+                raise ValueError('PARSED_REJECTION_CONTRADICTION')
+        elif state=='MALFORMED':
+            if rejection not in PARSE_REJECTIONS:
+                raise ValueError('MALFORMED_REJECTION_CONTRADICTION')
+            if rejection in ('OUTPUT_INVALID','OUTPUT_OVERSIZED'):
+                if mask is not None or count is not None:
+                    raise ValueError('UNPARSEABLE_OUTPUT_METADATA')
+            else:
+                if mask is None or count is None:
+                    raise ValueError('PARSE_METADATA_MISSING')
+                # The four-bit mask counts distinct recognized property names.
+                # Each requires its own input line. The retained line count is
+                # min(actual_lines, 9), so these lower bounds remain valid when
+                # the count has saturated at nine; nine is NOT an exact count.
+                distinct_names = mask.bit_count()
+                if distinct_names > count:
+                    raise ValueError('PRESENCE_EXCEEDS_LINE_COUNT')
+                # A syntactically malformed nonblank line, a duplicate recognized
+                # property, or an unexpected property necessarily occupies at
+                # least one line beyond the distinct recognized property lines.
+                if (rejection in ('MALFORMED_SYNTAX','DUPLICATE_PROPERTY',
+                                  'UNEXPECTED_PROPERTY')
+                        and count <= distinct_names):
+                    raise ValueError('REJECTION_EXTRA_LINE_MISSING')
+                if rejection=='MALFORMED_SYNTAX' and count==0:
+                    raise ValueError('MALFORMED_EMPTY_COUNT')
+                if rejection=='DUPLICATE_PROPERTY' and (count<2 or mask==0):
+                    raise ValueError('DUPLICATE_METADATA')
+                if rejection=='UNEXPECTED_PROPERTY' and count==0:
+                    raise ValueError('UNEXPECTED_METADATA')
+                if rejection=='MISSING_PROPERTY' and mask==15:
+                    raise ValueError('MISSING_PROPERTY_MASK')
+                if rejection=='WRONG_LINE_COUNT' and (mask!=15 or count<=4):
+                    raise ValueError('WRONG_LINE_COUNT_METADATA')
+    # Origin applies to the terminal *paired* observation only. Do not join
+    # predicates from different polling attempts or reset/recheck snapshots.
+    if origin=='NOT_REACHED':
+        if ti!='NOT_REACHED' or si!='NOT_REACHED':
+            raise ValueError('UNREACHED_TERMINAL_PAIR')
+    else:
+        if ti=='NOT_REACHED':
+            raise ValueError('TERMINAL_TIMER_NOT_QUERIED')
+        if si!='NOT_REACHED' and ti!='VERIFIED_INACTIVE':
+            raise ValueError('SERVICE_SHORT_CIRCUIT_VIOLATION')
+        # A positive polling pair can reach reset/recheck even when an earlier
+        # stop call timed out or was unavailable. Origin describes which paired
+        # observations were retained, not whether stop commands returned. The
+        # accepted teardown predicate below independently requires both stops.
     returned=(t in ('SUCCESS','NONZERO') and s in ('SUCCESS','NONZERO'))
     succeeded=t=='SUCCESS' and s=='SUCCESS'
     inactive=ti=='VERIFIED_INACTIVE' and si=='VERIFIED_INACTIVE'
     if (o['stop_commands_returned']!=returned or o['stop_commands_succeeded']!=succeeded
             or o['timer_and_service_inactive_verified']!=inactive):
         raise ValueError('TEARDOWN_OBSERVATIONS')
+    # Both commands must RETURN; they need not both EXIT ZERO, as originally
+    # accepted. Positive unit state, not exit status, proves inactivity.
     if o['teardown_verified'] != (returned and inactive and not o['registration_uncertainty_unresolved']):
         raise ValueError('TEARDOWN_PREDICATE')
 
