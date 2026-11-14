@@ -1,0 +1,87 @@
+# PROPOSED SOURCE-FREE DIAGNOSTIC — DO NOT INSTALL OR DISPATCH WITHOUT SEPARATE FOUNDER AUTHORIZATION.
+# This workflow is NOT BRQ qualification, and it does not run scientific source.
+name: M1 IR-01 source-free exact-contract timer diagnostic (NOT AUTHORIZED TO DISPATCH)
+on:
+  workflow_dispatch:
+    inputs:
+      expected_public_commit:
+        description: Exact founder-authorized commit containing this independently reviewed diagnostic file set
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: m1-sourcefree-timer-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Start job-local monotonic setup budget before checkout (no timer)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          /usr/bin/python3.12 - "$RUNNER_TEMP/m1_sourcefree_job_epoch_ns" <<'PY'
+          import pathlib,sys,time
+          with pathlib.Path(sys.argv[1]).open('x',encoding='ascii') as f:
+              f.write(str(time.monotonic_ns())+'\n')
+          PY
+      - name: Check out public repository only; do not persist checkout credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate exact installed reviewed implementations and diagnostic support
+        shell: bash
+        env:
+          EXPECTED_PUBLIC_COMMIT: ${{ inputs.expected_public_commit }}
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REPOSITORY" = gr8form1/manhardt-brlcad-build
+          test "$GITHUB_SHA" = "$EXPECTED_PUBLIC_COMMIT"
+          test -n "$GITHUB_RUN_ID" && test -n "$GITHUB_RUN_ATTEMPT"
+          /usr/bin/python3.12 --version >/dev/null
+          command -v timeout >/dev/null
+          command -v sha256sum >/dev/null
+          test -s "$RUNNER_TEMP/m1_sourcefree_job_epoch_ns"
+          test "$(sha256sum support/m1_brq_diag/accepted_initial_arm_source.py | awk '{print $1}')" = 839cbb827afe2663ee7e987c9a3ac56c7ddc617390c7e81a93959b91c56aad30
+          test "$(sha256sum support/m1_brq_diag/supervisor.py | awk '{print $1}')" = 09ddf1f5e9d6e6b7d4c1c662bff54607e494119265b6c669928aa6954211c380
+          test "$(sha256sum support/m1_brq_diag/custody.py | awk '{print $1}')" = 28e858d9ec14b6bec642938db8afbf257f19a2108d36892abf9cdf06468f1ab6
+          test "$(sha256sum support/m1_brq_diag/diagnostic_driver.py | awk '{print $1}')" = 470032329cfa1d48978816216b98f9983dd0009d4db09b9ce06dd69516281ca1
+          test "$(sha256sum support/m1_brq_diag/validate_public_evidence.py | awk '{print $1}')" = d0ddf6c0dbfe48c46cc78a08e8d87b6a7c24b72e08590356700f821e7f02b539
+      - name: One exact +540 timer, original-T0 and actual reviewed dual readback with try/finally teardown
+        id: one_timer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          timeout --signal=TERM --kill-after=5s 110s /usr/bin/python3.12 support/m1_brq_diag/diagnostic_driver.py run "$RUNNER_TEMP/m1_sourcefree_diagnostic_evidence"
+      - name: Independently retry teardown/readback on success or failure (never rearm)
+        if: always()
+        id: final_cleanup
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test "$(sha256sum support/m1_brq_diag/diagnostic_driver.py | awk '{print $1}')" = 470032329cfa1d48978816216b98f9983dd0009d4db09b9ce06dd69516281ca1
+          timeout --signal=TERM --kill-after=5s 55s /usr/bin/python3.12 support/m1_brq_diag/diagnostic_driver.py cleanup "$RUNNER_TEMP/m1_sourcefree_diagnostic_evidence"
+      - name: Validate complete allowlisted public evidence tree before upload
+        if: always()
+        id: validate_public
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(sha256sum support/m1_brq_diag/validate_public_evidence.py | awk '{print $1}')" = d0ddf6c0dbfe48c46cc78a08e8d87b6a7c24b72e08590356700f821e7f02b539
+          timeout --signal=TERM --kill-after=5s 20s /usr/bin/python3.12 support/m1_brq_diag/validate_public_evidence.py "$RUNNER_TEMP/m1_sourcefree_diagnostic_evidence"
+      - name: Upload only source-free, confidentiality-screened diagnostic evidence
+        if: ${{ always() && steps.validate_public.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-sourcefree-diag-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/m1_sourcefree_diagnostic_evidence/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
