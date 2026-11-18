@@ -130,7 +130,7 @@ def verify_loader_map(rec, runtime, baseline):
     return maps
 
 
-def make_tar(runtime, destination, source_commit):
+def make_tar(runtime, destination, source_commit, role_for_path=None):
     require(not (runtime / 'MANIFEST.json').exists() and not (runtime / 'SHA256SUMS').exists(),
             'Refusing to reuse a previously sealed runtime tree')
     files = sorted(p for p in runtime.rglob('*') if p.is_file())
@@ -141,6 +141,8 @@ def make_tar(runtime, destination, source_commit):
                 'ap242e2-plugin' if rel.startswith('libexec/step/') else
                 'library' if rel.startswith('lib/') else
                 'license' if rel.startswith('licenses/') else 'evidence')
+        if role_for_path is not None:
+            role = role_for_path(rel)
         rows.append({'path': rel, 'sha256': sha256(f), 'size': f.stat().st_size,
                      'mode': f.stat().st_mode & 0o777, 'role': role})
     write_json(runtime / 'MANIFEST.json', {'schema': 'ADR001_RUNTIME_CONTENTS/2',
